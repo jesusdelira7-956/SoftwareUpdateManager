@@ -1,0 +1,3 @@
+# Software Update Manager v2.0 uses 100% native Python 3.9+ Standard Library modules
+# (tkinter, ctypes, winreg, subprocess, threading, pathlib, shutil, platform).
+# Zero third-party pip packages are required!

@@ -1,0 +1,18 @@
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local runtime logs and exported system audit reports
+update_history.log
+System_Audit_*.txt
+*.log
+
+# Packaged release archives
+*.zip
+
+# OS / Editor metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
