@@ -71,6 +71,7 @@ def build():
         f"--icon={str(ICON_PATH)}",
         "--uac-admin",
         f"--add-data={str(ICON_PATH)};.",
+        f"--add-data={str(APP_DIR / 'assets')};assets",
         f"--distpath={str(DIST_DIR)}",
         f"--workpath={str(BUILD_DIR)}",
         f"--specpath={str(APP_DIR)}",

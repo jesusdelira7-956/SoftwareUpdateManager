@@ -35,8 +35,29 @@ APP_NAME = "Software Update Manager"
 APP_VERSION = "2.1.0"
 APP_DIR = Path(__file__).parent.resolve()
 LOG_FILE = APP_DIR / "update_history.log"
-ICON_FILE = APP_DIR / "app_icon.ico"
 DONATION_URL = "https://buymeacoffee.com/JesseInTheLab"
+
+
+def get_asset_file(filename: str) -> Path:
+    """Resolve asset paths both in PyInstaller bundled environments and source directories."""
+    if hasattr(sys, "_MEIPASS"):
+        p_bundle = Path(sys._MEIPASS) / "assets" / filename
+        if p_bundle.exists():
+            return p_bundle
+        p_bundle_root = Path(sys._MEIPASS) / filename
+        if p_bundle_root.exists():
+            return p_bundle_root
+    p_local = APP_DIR / "assets" / filename
+    if p_local.exists():
+        return p_local
+    return APP_DIR / filename
+
+
+ICON_FILE = get_asset_file("app_icon.ico")
+LOGO_FILE = get_asset_file("circle_logo.png")
+LOGO_LARGE_FILE = get_asset_file("circle_logo_large.png")
+HEADER_BG_FILE = get_asset_file("header_banner.png")
+WINDOW_BG_FILE = get_asset_file("window_bg.png")
 
 # AI Assistants, Developer Environments & Local Inference Suite tracking
 AI_DEV_PACKAGES = {
@@ -600,6 +621,36 @@ class UpdateManagerApp(tk.Tk):
             except Exception:
                 pass
 
+        # Visual Assets (Background & Logos)
+        self.bg_photo = None
+        self.header_bg_photo = None
+        self.logo_photo = None
+        self.logo_large_photo = None
+
+        if WINDOW_BG_FILE.exists():
+            try:
+                self.bg_photo = tk.PhotoImage(file=str(WINDOW_BG_FILE))
+            except Exception:
+                pass
+
+        if HEADER_BG_FILE.exists():
+            try:
+                self.header_bg_photo = tk.PhotoImage(file=str(HEADER_BG_FILE))
+            except Exception:
+                pass
+
+        if LOGO_FILE.exists():
+            try:
+                self.logo_photo = tk.PhotoImage(file=str(LOGO_FILE))
+            except Exception:
+                pass
+
+        if LOGO_LARGE_FILE.exists():
+            try:
+                self.logo_large_photo = tk.PhotoImage(file=str(LOGO_LARGE_FILE))
+            except Exception:
+                pass
+
         # Runtime State
         self.is_scanning = False
         self.is_updating = False
@@ -683,23 +734,35 @@ class UpdateManagerApp(tk.Tk):
         style.configure("Sash", sashthickness=6, gripcount=14, background="#334155")
 
     def _build_ui(self):
-        # 1. Top Header Bar
-        top_frame = ttk.Frame(self, padding=(20, 14, 20, 8))
-        top_frame.pack(fill=tk.X)
+        # 0. Global Window Background Wallpaper
+        if self.bg_photo:
+            self.bg_label = tk.Label(self, image=self.bg_photo, bd=0)
+            self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
+            self.bg_label.lower()
 
-        title_box = ttk.Frame(top_frame)
-        title_box.pack(side=tk.LEFT, fill=tk.Y)
+        # 1. Top Header Banner Canvas (with high-tech background & Jesse In The Lab circle logo)
+        self.top_canvas = tk.Canvas(self, height=84, bd=0, highlightthickness=0, bg="#0b1329")
+        self.top_canvas.pack(fill=tk.X)
 
-        ttk.Label(title_box, text=APP_NAME, style="Header.TLabel").pack(anchor="w")
-        ttk.Label(
-            title_box,
+        if self.header_bg_photo:
+            self.top_canvas.create_image(0, 0, image=self.header_bg_photo, anchor="nw")
+
+        title_x = 24
+        if self.logo_photo:
+            self.top_canvas.create_image(20, 18, image=self.logo_photo, anchor="nw")
+            title_x = 80
+
+        self.top_canvas.create_text(
+            title_x, 30, text=APP_NAME, fill="#ffffff", font=("Segoe UI", 16, "bold"), anchor="w"
+        )
+        self.top_canvas.create_text(
+            title_x, 56,
             text="Stage 1: Hardware Spec Detection • Stage 2: Deep Software Audit • Sequential Verified Updates",
-            style="SubHeader.TLabel",
-        ).pack(anchor="w", pady=(2, 0))
+            fill="#93c5fd", font=("Segoe UI", 9), anchor="w"
+        )
 
         # Dynamic Hardware + Admin Badges on the right
-        badge_box = ttk.Frame(top_frame)
-        badge_box.pack(side=tk.RIGHT, anchor="e")
+        badge_box = tk.Frame(self.top_canvas, bg="#0d1527", padx=4, pady=4, highlightthickness=1, highlightbackground="#1e3a5f")
 
         # Buy Me a Coffee Button (Amber / Warm Gold)
         self.btn_coffee = tk.Button(
@@ -725,6 +788,16 @@ class UpdateManagerApp(tk.Tk):
 
         self.lbl_hw_badge = ttk.Label(badge_box, text=" 🔍 Detecting Computer Specs... ", style="Badge.TLabel")
         self.lbl_hw_badge.pack(side=tk.RIGHT)
+
+        self.badge_window = self.top_canvas.create_window(1080, 42, window=badge_box, anchor="e")
+
+        def _on_header_resize(e):
+            try:
+                self.top_canvas.coords(self.badge_window, e.width - 20, 42)
+            except Exception:
+                pass
+
+        self.top_canvas.bind("<Configure>", _on_header_resize)
 
         # 2. Windows Updates Reminder Banner (Shown dynamically when pending OS updates exist)
         self.win_notice_frame = tk.Frame(
@@ -1128,6 +1201,40 @@ class UpdateManagerApp(tk.Tk):
     def _build_help_tab(self):
         help_frame = tk.Frame(self.tab_help, bg=self.card_bg, padx=16, pady=14)
         help_frame.pack(fill=tk.BOTH, expand=True, pady=8)
+
+        # Brand Hero Card (Jesse In The Lab Logo & Community)
+        brand_card = tk.Frame(help_frame, bg="#131c2e", highlightbackground="#0284c7", highlightthickness=1, padx=14, pady=10)
+        brand_card.pack(fill=tk.X, pady=(0, 10))
+
+        if self.logo_large_photo:
+            lbl_brand_logo = tk.Label(brand_card, image=self.logo_large_photo, bg="#131c2e")
+            lbl_brand_logo.pack(side=tk.LEFT, padx=(4, 16))
+
+        brand_info = tk.Frame(brand_card, bg="#131c2e")
+        brand_info.pack(side=tk.LEFT, fill=tk.Y)
+
+        tk.Label(
+            brand_info, text="Jesse In The Lab • AI & System Engineering",
+            bg="#131c2e", fg="#38bdf8", font=("Segoe UI", 12, "bold")
+        ).pack(anchor="w")
+        tk.Label(
+            brand_info,
+            text="Official Software Update Manager & System Auditor Suite • Designed for high reliability & zero dependencies.",
+            bg="#131c2e", fg="#cbd5e1", font=("Segoe UI", 9)
+        ).pack(anchor="w", pady=(2, 0))
+        tk.Label(
+            brand_info,
+            text="Support the developer on Buy Me a Coffee: https://buymeacoffee.com/JesseInTheLab",
+            bg="#131c2e", fg="#94a3b8", font=("Segoe UI", 9)
+        ).pack(anchor="w", pady=(2, 0))
+
+        tk.Button(
+            brand_card,
+            text="☕ Support Project",
+            command=self.open_buy_me_coffee,
+            bg="#f59e0b", fg="#000000", activebackground="#d97706", activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=4, cursor="hand2"
+        ).pack(side=tk.RIGHT, padx=6)
 
         help_text = scrolledtext.ScrolledText(
             help_frame, bg=self.card_bg, fg=self.text_color, font=("Segoe UI", 10),
