@@ -129,6 +129,34 @@ def trigger_browser_background_updates() -> list[str]:
     return triggered
 
 
+def create_windows_restore_point(description: str = "Before Software Update") -> tuple[bool, str]:
+    """Create a Windows System Restore Point using PowerShell Checkpoint-Computer."""
+    clean_desc = description.replace("'", "").replace('"', "")
+    ps_cmd = (
+        f"$ErrorActionPreference = 'Stop'; "
+        f"Checkpoint-Computer -Description '{clean_desc}' -RestorePointType 'APPLICATION_INSTALL'"
+    )
+    try:
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        res = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
+            capture_output=True, text=True, errors="replace", timeout=120, startupinfo=startupinfo
+        )
+        out = (res.stdout + " " + res.stderr).strip()
+        if res.returncode == 0:
+            return True, "System Restore Point created successfully."
+        if "1440" in out or "already exists" in out.lower():
+            return True, "Recent restore point already exists (created within the last 24 hours)."
+        if "disabled" in out.lower() or "not enabled" in out.lower() or "0x80042306" in out:
+            return False, "System Protection is currently disabled on drive C: in Windows Settings."
+        return False, out[:150] if out else f"Code {res.returncode}"
+    except subprocess.TimeoutExpired:
+        return False, "Restore point creation timed out."
+    except Exception as e:
+        return False, str(e)
+
+
 # =====================================================================
 # ADMINISTRATOR PRIVILEGE & STARTUP HELPERS
 # =====================================================================
@@ -444,6 +472,116 @@ def format_short_gpu(gpu_name: str) -> str:
     s = re.sub(r"NVIDIA GeForce |AMD Radeon |\(TM\)|\(R\)|Graphics", "", gpu_name, flags=re.IGNORECASE)
     s = " ".join(s.split())
     return s[:26] if len(s) > 26 else (s or "GPU")
+
+
+# =====================================================================
+# SYSTEM RESTORE POINT CONFIRMATION DIALOG
+# =====================================================================
+class RestorePointConfirmDialog(tk.Toplevel):
+    def __init__(self, parent, target_count: int, silent_mode: bool):
+        super().__init__(parent)
+        self.result = None  # "yes", "no", or None
+        self.title("🛡️ Windows System Protection & Update Confirmation")
+        self.geometry("560x360")
+        self.resizable(False, False)
+        self.configure(bg="#0f172a")
+        self.transient(parent)
+        self.grab_set()
+
+        # Center over parent window
+        self.update_idletasks()
+        pw = parent.winfo_width()
+        ph = parent.winfo_height()
+        px = parent.winfo_rootx()
+        py = parent.winfo_rooty()
+        x = px + max(0, (pw - 560) // 2)
+        y = py + max(0, (ph - 360) // 2)
+        self.geometry(f"+{x}+{y}")
+
+        frame = tk.Frame(self, bg="#0f172a", padx=24, pady=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        # Header Title
+        tk.Label(
+            frame, text="🛡️ Confirm Updates & System Protection",
+            bg="#0f172a", fg="#f8fafc", font=("Segoe UI", 13, "bold"), anchor="w"
+        ).pack(fill=tk.X, pady=(0, 6))
+
+        mode_text = "Silent Background Mode" if silent_mode else "Interactive Mode"
+        tk.Label(
+            frame,
+            text=f"Ready to install {target_count} package update(s) sequentially in {mode_text}.\nEach application will be automatically verified post-installation.",
+            bg="#0f172a", fg="#94a3b8", font=("Segoe UI", 9), anchor="w", justify=tk.LEFT
+        ).pack(fill=tk.X, pady=(0, 14))
+
+        # Recommendation Card
+        card = tk.Frame(
+            frame, bg="#1e293b", highlightbackground="#059669", highlightthickness=1, padx=14, pady=12
+        )
+        card.pack(fill=tk.X, pady=(0, 16))
+
+        tk.Label(
+            card, text="🛡️ CREATE SYSTEM RESTORE POINT? (RECOMMENDED: YES)",
+            bg="#1e293b", fg="#34d399", font=("Segoe UI", 10, "bold"), anchor="w"
+        ).pack(fill=tk.X, pady=(0, 4))
+
+        tk.Label(
+            card,
+            text="Creating a Windows Restore Point creates a safe recovery snapshot before modifying system files. If any driver, runtime, or third-party software update causes system instability, you can safely roll back your PC.",
+            bg="#1e293b", fg="#cbd5e1", font=("Segoe UI", 9), anchor="w", justify=tk.LEFT, wraplength=480
+        ).pack(fill=tk.X)
+
+        # Action Buttons
+        btn_frame = tk.Frame(frame, bg="#0f172a")
+        btn_frame.pack(fill=tk.X, pady=(4, 0))
+
+        # 1. Yes (Recommended)
+        btn_yes = tk.Button(
+            btn_frame,
+            text="✔ Yes, Create Restore Point & Update (Recommended)",
+            command=self._on_yes,
+            bg="#059669", fg="#ffffff", activebackground="#047857", activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=7, cursor="hand2"
+        )
+        btn_yes.pack(fill=tk.X, pady=(0, 8))
+
+        # 2. No (Skip) & Cancel Row
+        sub_row = tk.Frame(btn_frame, bg="#0f172a")
+        sub_row.pack(fill=tk.X)
+
+        btn_no = tk.Button(
+            sub_row,
+            text="⚡ No, Update Directly (Skip Restore Point)",
+            command=self._on_no,
+            bg="#334155", fg="#f1f5f9", activebackground="#475569", activeforeground="#ffffff",
+            font=("Segoe UI", 9), relief="flat", padx=10, pady=5, cursor="hand2"
+        )
+        btn_no.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+
+        btn_cancel = tk.Button(
+            sub_row,
+            text="Cancel",
+            command=self._on_cancel,
+            bg="#1e293b", fg="#94a3b8", activebackground="#334155", activeforeground="#ffffff",
+            font=("Segoe UI", 9), relief="flat", padx=16, pady=5, cursor="hand2"
+        )
+        btn_cancel.pack(side=tk.RIGHT)
+
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.bind("<Escape>", lambda e: self._on_cancel())
+        btn_yes.focus_set()
+
+    def _on_yes(self):
+        self.result = "yes"
+        self.destroy()
+
+    def _on_no(self):
+        self.result = "no"
+        self.destroy()
+
+    def _on_cancel(self):
+        self.result = None
+        self.destroy()
 
 
 # =====================================================================
@@ -818,7 +956,19 @@ class UpdateManagerApp(tk.Tk):
             activebackground=self.bg_color, activeforeground="#ffffff",
             font=("Segoe UI", 9)
         )
-        chk_silent.pack(side=tk.LEFT, padx=10)
+        chk_silent.pack(side=tk.LEFT, padx=8)
+
+        # System Restore Point Checkbox
+        self.restore_point_var = tk.BooleanVar(value=True)
+        chk_restore = tk.Checkbutton(
+            btn_row,
+            text="Restore Point (Recommended)",
+            variable=self.restore_point_var,
+            bg=self.bg_color, fg="#34d399", selectcolor="#1e293b",
+            activebackground=self.bg_color, activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold")
+        )
+        chk_restore.pack(side=tk.LEFT, padx=(4, 10))
 
         self.btn_toggle_log = ttk.Button(btn_row, text="📜 View Live Log", style="Secondary.TButton", command=self.toggle_log_pane)
         self.btn_toggle_log.pack(side=tk.RIGHT, padx=2)
@@ -1366,12 +1516,17 @@ By requesting Administrator elevation once when the app starts (shown by the gre
     def _start_sequential_updates(self, targets: list):
         if not targets:
             return
-        mode_desc = "Silent Mode" if self.silent_mode_var.get() else "Standard Interactive Mode"
-        if not messagebox.askyesno(
-            "Confirm Sequential Update",
-            f"Push updates one-by-one for {len(targets)} application(s) in {mode_desc}?\n\nEach package will be verified automatically after installation."
-        ):
+
+        # Show System Restore Confirmation Dialog (Yes/No with Recommendation to Yes)
+        dialog = RestorePointConfirmDialog(self, len(targets), self.silent_mode_var.get())
+        self.wait_window(dialog)
+
+        if dialog.result is None:
+            # User clicked Cancel or closed the dialog
             return
+
+        create_restore = (dialog.result == "yes")
+        self.restore_point_var.set(create_restore)
 
         self.is_updating = True
         self.stop_requested = False
@@ -1379,11 +1534,16 @@ By requesting Administrator elevation once when the app starts (shown by the gre
         self.btn_update_all.config(state="disabled")
         self.btn_update_selected.config(state="disabled")
         self.btn_stop.config(state="normal")
+        self.progress_var.set(0.0)
 
         if not self.log_visible:
             self.toggle_log_pane()
 
-        threading.Thread(target=self._worker_sequential_updates, args=(targets,), daemon=True).start()
+        threading.Thread(
+            target=self._worker_sequential_updates,
+            args=(targets, create_restore),
+            daemon=True
+        ).start()
 
     def _set_app_state(self, pkg_id: str, current_ver=None, status="Installing...", tag="updating"):
         for app in self.updates_list:
@@ -1404,10 +1564,22 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                 self.tree.see(item)
                 break
 
-    def _worker_sequential_updates(self, targets: list):
+    def _worker_sequential_updates(self, targets: list, create_restore: bool = True):
         total = len(targets)
         self.log_ui("=" * 68)
         self.log_ui(f"[BATCH START] Updating {total} application(s) sequentially...")
+
+        # 1. System Restore Point Protection (if requested)
+        if create_restore:
+            self.after(0, lambda: self.lbl_status.config(text="🛡️ Creating Windows System Restore Point... Please wait."))
+            self.log_ui("[RESTORE POINT] Requesting Windows System Restore Point ('Before Software Update')...")
+            ok, msg = create_windows_restore_point("Before Software Update")
+            if ok:
+                self.log_ui(f"[RESTORE POINT] ✓ {msg}")
+            else:
+                self.log_ui(f"[RESTORE POINT] ⚠ {msg}")
+        else:
+            self.log_ui("[RESTORE POINT] Skipped by user selection.")
 
         success_count = 0
         reboot_count = 0
