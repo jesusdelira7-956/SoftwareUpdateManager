@@ -113,4 +113,9 @@ Write-Output $ShortcutPath
 
 
 if __name__ == "__main__":
-    create_desktop_shortcut()
+    success = create_desktop_shortcut()
+    if success:
+        print("\n" + "=" * 60)
+        print("  ☕ Love Software Update Manager? Support development at:")
+        print("     https://buymeacoffee.com/JesseInTheLab")
+        print("=" * 60 + "\n")

@@ -25,16 +25,108 @@ import winreg
 import platform
 import threading
 import subprocess
+import webbrowser
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, filedialog
 from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "Software Update Manager"
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.1.0"
 APP_DIR = Path(__file__).parent.resolve()
 LOG_FILE = APP_DIR / "update_history.log"
 ICON_FILE = APP_DIR / "app_icon.ico"
+DONATION_URL = "https://buymeacoffee.com/JesseInTheLab"
+
+# AI Assistants, Developer Environments & Local Inference Suite tracking
+AI_DEV_PACKAGES = {
+    "Microsoft.VisualStudioCode": "Visual Studio Code",
+    "Anysphere.Cursor": "Cursor AI",
+    "Google.AndroidStudio": "Android Studio",
+    "Google.Antigravity": "Antigravity IDE",
+    "GitHub.CopilotApp": "GitHub Copilot",
+    "OpenAI.ChatGPT": "ChatGPT Desktop",
+    "OpenAI.Codex": "OpenAI Codex",
+    "Anthropic.Claude": "Claude Desktop",
+    "Ollama.Ollama": "Ollama LLM Engine",
+    "ElementLabs.LMStudio": "LM Studio",
+    "pinokiocomputer.pinokio": "Pinokio AI Browser",
+    "Docker.DockerDesktop": "Docker Desktop",
+    "GitHub.GitHubDesktop": "GitHub Desktop",
+    "Git.Git": "Git SCM",
+    "Python.Python.3.12": "Python 3.12",
+    "Python.Python.3.11": "Python 3.11",
+    "Nodejs.Nodejs": "Node.js",
+}
+
+# Known winget (APPINSTALLER_CLI_ERROR_*) HRESULTs & Windows installer exit codes
+EXIT_CODE_MAP = {
+    0: ("✓ Verified", "Installed successfully"),
+    3010: ("⚠ Reboot Needed", "Restart required to complete"),
+    1641: ("⚠ Reboot Needed", "Restart initiated by installer"),
+    1602: ("✗ Cancelled", "Installation cancelled by user"),
+    1618: ("✗ Busy", "Another installer is already running"),
+    0x8A150006: ("✗ Failed", "Installer error (manual install required)"),
+    0x8A150008: ("✗ Network Err", "Download failed"),
+    0x8A150011: ("✗ Hash Err", "Installer hash mismatch"),
+    0x8A150014: ("✗ Not Found", "Package not found in source"),
+    0x8A15002B: ("✓ Up to Date", "Already at the latest version"),
+    0x8A150101: ("✗ App In-Use", "Application is open. Close and retry."),
+    0x8A150102: ("✗ Busy", "Another installer in progress"),
+    0x8A150103: ("✗ File In-Use", "Files locked by running program"),
+    0x8A150105: ("✗ Disk Full", "Insufficient disk space"),
+    0x8A150107: ("✗ Offline", "No internet connection"),
+    0x8A150109: ("⚠ Reboot Needed", "Restart required to finish"),
+    0x8A15010A: ("⚠ Reboot Needed", "Restart required before install"),
+    0x8A15010B: ("⚠ Reboot Needed", "Installer requested restart"),
+    0x8A15010C: ("✗ Cancelled", "Installation cancelled"),
+    0x8A15010D: ("✓ Up to Date", "Already up to date"),
+}
+
+
+def decode_winget_exit_code(code: int) -> tuple[str, str]:
+    """Decode signed or unsigned winget exit code into a human-readable badge & detail."""
+    u_code = code & 0xFFFFFFFF
+    if code in EXIT_CODE_MAP:
+        return EXIT_CODE_MAP[code]
+    if u_code in EXIT_CODE_MAP:
+        return EXIT_CODE_MAP[u_code]
+    return (f"✗ Code {code}", f"Process exited with code {code}")
+
+
+def trigger_browser_background_updates() -> list[str]:
+    """Trigger native background updater services for Chrome, Edge, Brave, and Firefox."""
+    triggered = []
+    browser_paths = [
+        ("Google Chrome", [
+            r"C:\Program Files\Google\Update\GoogleUpdate.exe",
+            r"C:\Program Files (x86)\Google\Update\GoogleUpdate.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Update\GoogleUpdate.exe"),
+        ], ["/c"]),
+        ("Microsoft Edge", [
+            r"C:\Program Files (x86)\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe",
+            r"C:\Program Files\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe",
+        ], ["/c"]),
+        ("Brave Browser", [
+            r"C:\Program Files\BraveSoftware\Update\BraveUpdate.exe",
+            r"C:\Program Files (x86)\BraveSoftware\Update\BraveUpdate.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Update\BraveUpdate.exe"),
+        ], ["/c"]),
+        ("Mozilla Firefox", [
+            r"C:\Program Files\Mozilla Firefox\firefox.exe",
+            r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
+        ], ["-os-recheck"]),
+    ]
+    for b_name, exes, args in browser_paths:
+        for exe in exes:
+            if os.path.exists(exe):
+                try:
+                    subprocess.Popen([exe] + args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    triggered.append(b_name)
+                    break
+                except Exception:
+                    pass
+    return triggered
 
 
 # =====================================================================
@@ -467,6 +559,16 @@ class UpdateManagerApp(tk.Tk):
         badge_box = ttk.Frame(top_frame)
         badge_box.pack(side=tk.RIGHT, anchor="e")
 
+        # Buy Me a Coffee Button (Amber / Warm Gold)
+        self.btn_coffee = tk.Button(
+            badge_box,
+            text=" ☕ Buy Me a Coffee ",
+            command=self.open_buy_me_coffee,
+            bg="#f59e0b", fg="#000000", activebackground="#d97706", activeforeground="#ffffff",
+            relief="flat", font=("Segoe UI", 9, "bold"), padx=8, pady=3, cursor="hand2"
+        )
+        self.btn_coffee.pack(side=tk.RIGHT, padx=(6, 0))
+
         if is_User_Admin():
             self.lbl_admin_badge = ttk.Label(badge_box, text=" 🛡️ Administrator ", style="AdminOk.TLabel")
             self.lbl_admin_badge.pack(side=tk.RIGHT, padx=(6, 0))
@@ -573,9 +675,14 @@ class UpdateManagerApp(tk.Tk):
         ).pack(side=tk.LEFT, padx=2)
 
         tk.Button(
-            search_frame, text="Clear Selection", command=self.deselect_all_updates,
+            search_frame, text="Clear", command=self.deselect_all_updates,
             bg="#334155", fg="#f8fafc", relief="flat", font=("Segoe UI", 8), padx=6, pady=2, cursor="hand2"
         ).pack(side=tk.LEFT, padx=2)
+
+        tk.Button(
+            search_frame, text="🤖 AI & Dev Tools", command=self.filter_ai_dev_tools,
+            bg="#4338ca", fg="#ffffff", relief="flat", font=("Segoe UI", 8, "bold"), padx=7, pady=2, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=3)
 
         # Updates Treeview Table
         table_container = ttk.Frame(self.tab_updater, style="Card.TFrame", padding=(1, 1, 1, 1))
@@ -638,6 +745,11 @@ class UpdateManagerApp(tk.Tk):
             btn_row, text="⏹ Stop Batch", style="Danger.TButton", command=self.request_stop_batch, state="disabled"
         )
         self.btn_stop.pack(side=tk.LEFT, padx=6)
+
+        self.btn_browsers = ttk.Button(
+            btn_row, text="🌐 Update Browsers", style="Secondary.TButton", command=self.trigger_browser_updates
+        )
+        self.btn_browsers.pack(side=tk.LEFT, padx=6)
 
         # Silent Mode Checkbox
         chk_silent = tk.Checkbutton(
@@ -766,22 +878,38 @@ class UpdateManagerApp(tk.Tk):
         )
         help_text.pack(fill=tk.BOTH, expand=True)
 
-        guide_content = """📘 WELCOME TO SOFTWARE UPDATE MANAGER (v2.0)
+        guide_content = """📘 WELCOME TO SOFTWARE UPDATE MANAGER & AUDITOR (v2.1)
 ================================================================================
-This utility is designed to work out-of-the-box on ANY Windows 10 or Windows 11 computer. It automatically audits your computer's hardware specifications, scans all installed software, finds available updates, installs them one-by-one, and verifies every update.
+This utility is designed to work out-of-the-box on ANY Windows 10 or Windows 11 computer. It automatically audits your computer's hardware specifications, scans all installed software, finds available updates, installs them sequentially, and verifies every update.
 
 --------------------------------------------------------------------------------
-1. HOW THE TWO-STAGE AUTOMATIC SCAN WORKS
+1. FAST ONE-LINER INSTALLATION (OPTION A)
+--------------------------------------------------------------------------------
+On any Windows 10 or 11 PC, you can install or update Software Update Manager with a single PowerShell line:
+  irm https://raw.githubusercontent.com/jesusdelira7-956/SoftwareUpdateManager/main/install.ps1 | iex
+
+This automatically ensures Python 3 and Winget are configured, creates the Desktop and Start Menu shortcuts with high-resolution icons, and readies the system.
+
+--------------------------------------------------------------------------------
+2. HOW THE TWO-STAGE AUTOMATIC SCAN WORKS
 --------------------------------------------------------------------------------
 When you launch the app (or click "🔄 Full System & Update Scan"):
-  • STAGE 1 (Computer Specs Scan): First, the app detects your computer's CPU, Graphics Card (GPU), Memory (RAM), Storage Drives, Windows Build, and Administrator status. It updates the top-right hardware badge and populates the "💻 Computer Specs & Installed Apps" tab.
+  • STAGE 1 (Computer Specs Scan): First, the app detects your computer's CPU, Graphics Card (GPU + VRAM), Memory (RAM), Storage Drives, Windows Build, and Administrator status. It updates the top-right hardware badge and populates the "💻 Computer Specs & Installed Apps" tab.
   • STAGE 2 (Deep Software & Update Scan): Next, it scans the Windows Registry for every installed application and checks Microsoft's Windows Package Manager (Winget) for newer versions, plus checks for pending Windows OS updates.
 
 --------------------------------------------------------------------------------
-2. HOW TO UPDATE YOUR SOFTWARE
+3. SPECIALIZED AI & DEV SUITES + BROWSER ORCHESTRATION
+--------------------------------------------------------------------------------
+  • 🤖 AI & Dev Tools:
+    Click the "🤖 AI & Dev Tools" button in the filter toolbar to instantly select and prioritize updates for AI assistants and developer suites (Antigravity IDE, Cursor, VS Code, Android Studio, GitHub Copilot, Ollama, LM Studio, Pinokio, Docker Desktop, etc.).
+  • 🌐 Browser Background Updates:
+    Click "🌐 Update Browsers" to silently invoke native background updater services for Google Chrome, Microsoft Edge, Brave, and Mozilla Firefox.
+
+--------------------------------------------------------------------------------
+4. HOW TO UPDATE YOUR SOFTWARE
 --------------------------------------------------------------------------------
   • Update Everything Sequentially:
-    Click "⚡ Push All Updates (One-by-One)". The app will download and install updates strictly one at a time so installers never collide or lock the same system files.
+    Click "⚡ Push All Updates (One-by-One)". The app downloads and installs updates strictly one at a time so installers never collide or lock the same system files.
   • Update Specific Apps Only:
     Click on one or more rows in the table (hold Ctrl or Shift to highlight multiple rows, or use the Search box), then click "✔ Update Highlighted Only".
   • Silent / Unattended Mode:
@@ -790,34 +918,41 @@ When you launch the app (or click "🔄 Full System & Update Scan"):
     Click "⏹ Stop Batch" at any time during updates; the app will safely finish the current installer and stop before starting the next one.
 
 --------------------------------------------------------------------------------
-3. MEANING OF UPDATE STATUS BADGES
+5. MEANING OF UPDATE STATUS BADGES
 --------------------------------------------------------------------------------
   • Pending Update (Blue)     : A newer version is available and ready to install.
   • Installing... (Amber)     : Winget is currently downloading and running the installer.
   • ✓ Verified (Green)        : The update finished AND post-install verification confirmed the new version.
   • ⚠ Reboot Needed (Yellow)  : The update succeeded, but Windows requires a restart to finalize replaced files.
-  • ✗ Failed (Red)            : The installer returned an error (for example, if the app is currently open and locked). Close the app and retry.
+  • ✗ App In-Use / Locked     : The application is currently open. Close it and retry.
+  • ✗ Failed                  : The installer returned an error code. Check the live log for details.
 
 --------------------------------------------------------------------------------
-4. WHY ADMINISTRATOR MODE IS ENABLED AT STARTUP
+6. WHY ADMINISTRATOR MODE IS ENABLED AT STARTUP
 --------------------------------------------------------------------------------
 Many system applications (such as Visual C++ Redistributables, .NET Runtimes, VLC, 7-Zip, and Hardware Drivers) require Administrator rights to update files in "C:\\Program Files".
 By requesting Administrator elevation once when the app starts (shown by the green "🛡️ Administrator" badge in the top-right), all updates run smoothly without interrupting you with repeated UAC prompts.
-
---------------------------------------------------------------------------------
-5. WHY WINDOWS OS UPDATES ARE SEPARATE
---------------------------------------------------------------------------------
-If your PC has pending Windows Security or Cumulative updates (such as KB patches or Defender definitions), an amber banner appears at the top of the window.
-Windows OS updates modify core kernel files and manage System Restore points, so they should always be installed through Windows Update. Click the "Open Windows Update" button on the banner to jump straight to Windows Settings.
-
---------------------------------------------------------------------------------
-6. USING THIS TOOL ON OTHER COMPUTERS (GITHUB / PORTABLE)
---------------------------------------------------------------------------------
-  1. Copy or clone the project folder onto any Windows 10 or Windows 11 PC with Python 3.9+ installed.
-  2. Double-click "Install_Desktop_Shortcut.bat" to automatically create the "Software Update Manager" icon on that computer's Desktop, OR double-click "Run_Update_Manager.bat" to run it immediately.
 """
         help_text.insert(tk.END, guide_content)
         help_text.configure(state="disabled")
+
+        # Buy Me a Coffee Support Bar at the bottom of Help Tab
+        coffee_bar = tk.Frame(help_frame, bg="#0f172a", highlightbackground="#d97706", highlightthickness=1, padx=14, pady=10)
+        coffee_bar.pack(fill=tk.X, pady=(10, 0))
+
+        tk.Label(
+            coffee_bar,
+            text="☕ Support the Independent Developer & Ongoing Updates",
+            bg="#0f172a", fg="#fde047", font=("Segoe UI", 10, "bold")
+        ).pack(side=tk.LEFT)
+
+        tk.Button(
+            coffee_bar,
+            text="☕ Buy Me a Coffee (JesseInTheLab)",
+            command=self.open_buy_me_coffee,
+            bg="#f59e0b", fg="#000000", activebackground="#d97706", activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"), relief="flat", padx=14, pady=4, cursor="hand2"
+        ).pack(side=tk.RIGHT)
 
     # -----------------------------------------------------------------
     # LOGGING & UI HELPERS
@@ -856,6 +991,53 @@ Windows OS updates modify core kernel files and manage System Restore points, so
 
     def deselect_all_updates(self):
         self.tree.selection_remove(self.tree.get_children())
+
+    def open_buy_me_coffee(self):
+        """Open developer's Buy Me a Coffee page in the user's default browser."""
+        try:
+            webbrowser.open(DONATION_URL)
+            self.log_ui(f"[DONATION] Opened Buy Me a Coffee: {DONATION_URL}")
+        except Exception as e:
+            self.log_ui(f"[ERROR] Could not open link: {e}")
+
+    def filter_ai_dev_tools(self):
+        """Highlight and select all pending updates for AI & Developer Environment packages."""
+        matched = []
+        for item in self.tree.get_children():
+            vals = self.tree.item(item, "values")
+            if len(vals) >= 2:
+                name_str = vals[0].lower()
+                pkg_id = vals[1].lower()
+                if any(k.lower() in pkg_id or v.lower() in name_str for k, v in AI_DEV_PACKAGES.items()):
+                    matched.append(item)
+        if matched:
+            self.tree.selection_set(matched)
+            self.lbl_status.config(text=f"🤖 Selected {len(matched)} AI & Developer Suite update(s).")
+            self.log_ui(f"[FILTER] Highlighted {len(matched)} AI / Developer tool(s) for update.")
+        else:
+            self.lbl_status.config(text="🤖 No pending updates for AI/Dev tools at this time.")
+            messagebox.showinfo("AI & Dev Suites", "No pending updates found for AI assistants or Developer tools.\nAll monitored dev environments are current!")
+
+    def trigger_browser_updates(self):
+        """Invoke native background updater services for Chrome, Edge, Brave, and Firefox."""
+        def _run():
+            self.log_ui("[BROWSERS] Triggering native background update services...")
+            triggered = trigger_browser_background_updates()
+            if triggered:
+                names = ", ".join(triggered)
+                self.log_ui(f"[BROWSERS] Successfully signaled: {names}")
+                self.after(0, lambda: messagebox.showinfo(
+                    "Browser Updaters",
+                    f"Background update service initiated for:\n\n• " + "\n• ".join(triggered) + "\n\nThese browsers will update silently in the background."
+                ))
+            else:
+                self.log_ui("[BROWSERS] No standalone browser updater executables found.")
+                self.after(0, lambda: messagebox.showinfo(
+                    "Browser Updaters",
+                    "No standalone background updater executables were found.\nBrowsers will be updated directly via Winget in the list."
+                ))
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def request_stop_batch(self):
         if self.is_updating:
@@ -1217,14 +1399,16 @@ Windows OS updates modify core kernel files and manage System Restore points, so
                             self.log_ui(f"  > {stripped}", to_file=False)
 
                 return_code = proc.wait(timeout=600)
-                self.log_ui(f"[EXIT CODE] {name} finished with code {return_code}")
+                decoded_badge, decoded_desc = decode_winget_exit_code(return_code)
+                self.log_ui(f"[EXIT CODE] {name} finished with code {return_code} ({decoded_desc})")
 
                 # Post-install verification
                 self.after(0, lambda p=pkg_id: self._set_app_state(p, status="Verifying...", tag="updating"))
                 verified, verified_ver = self._verify_installation(pkg_id, avail_ver)
 
+                u_code = return_code & 0xFFFFFFFF
                 # 0 = OK, -1978335189 (0x8A15002B) = No applicable upgrade found (already up to date)
-                if return_code in (0, -1978335189) or verified:
+                if return_code in (0, -1978335189, 0x8A15002B, 0x8A15010D) or u_code in (0x8A15002B, 0x8A15010D) or verified:
                     success_count += 1
                     self.verified_session_count += 1
                     final_ver = verified_ver or avail_ver
@@ -1232,18 +1416,18 @@ Windows OS updates modify core kernel files and manage System Restore points, so
                     self.after(0, lambda p=pkg_id, v=f"{old_ver} → {final_ver}", s=status_text: self._set_app_state(p, current_ver=v, status=s, tag="verified"))
                     self.after(0, lambda c=self.verified_session_count: self.card_ver_val.config(text=str(c)))
                     self.log_ui(f"[VERIFIED] {name} confirmed at version {final_ver}")
-                elif return_code == 3010:
+                elif return_code in (3010, 1641) or u_code in (0x8A150109, 0x8A15010A, 0x8A15010B):
                     reboot_count += 1
                     self.verified_session_count += 1
                     status_text = "⚠ Reboot Needed"
                     self.after(0, lambda p=pkg_id, v=f"{old_ver} → {avail_ver}", s=status_text: self._set_app_state(p, current_ver=v, status=s, tag="reboot"))
                     self.after(0, lambda c=self.verified_session_count: self.card_ver_val.config(text=str(c)))
-                    self.log_ui(f"[REBOOT NEEDED] {name} installed; system restart required.")
+                    self.log_ui(f"[REBOOT NEEDED] {name} installed; restart required ({decoded_desc}).")
                 else:
                     failed_count += 1
-                    status_text = f"✗ Failed ({return_code})"
+                    status_text = decoded_badge
                     self.after(0, lambda p=pkg_id, s=status_text: self._set_app_state(p, status=s, tag="failed"))
-                    self.log_ui(f"[FAILED] {name} returned non-zero code {return_code}")
+                    self.log_ui(f"[STATUS] {name}: {decoded_badge} — {decoded_desc}")
 
             except Exception as e:
                 failed_count += 1

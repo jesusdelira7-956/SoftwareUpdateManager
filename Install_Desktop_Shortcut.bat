@@ -26,7 +26,12 @@ for /d %%D in ("%LOCALAPPDATA%\Programs\Python\Python*") do (
     )
 )
 
-echo [ERROR] Python 3 was not found on this computer.
+echo [NOTICE] Python 3 was not detected on PATH.
+echo Launching automated environment installer (install.ps1)...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -Local
+if %errorlevel% equ 0 goto :done
+
+echo [ERROR] Python 3 installation could not be completed automatically.
 echo Please install Python 3.9+ from https://www.python.org/downloads/
 pause
 exit /b 1
