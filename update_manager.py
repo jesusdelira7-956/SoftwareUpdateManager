@@ -620,11 +620,33 @@ class UpdateManagerApp(tk.Tk):
         self._build_specs_tab()
         self._build_help_tab()
 
-        # 4. Collapsible Live Console Log Drawer (Bottom of Window)
-        self.log_container = tk.Frame(self, bg="#020617", highlightbackground="#1e293b", highlightthickness=1)
+        # 4. Collapsible & Vertically Resizable Live Console Log Drawer (Bottom of Window)
+        self.log_pane_height = 170
+        self.log_container = tk.Frame(
+            self, bg="#020617", highlightbackground="#1e293b", highlightthickness=1
+        )
+        self.log_container.pack_propagate(False)
+
+        # Draggable Sash / Resizer Splitter Bar (Sits at the top of the log container)
+        self.log_resizer = tk.Frame(
+            self.log_container, bg="#1e293b", height=12, cursor="size_ns"
+        )
+        self.log_resizer.pack(fill=tk.X, side=tk.TOP)
+        self.log_resizer.pack_propagate(False)
+
+        self.log_resizer_grip = tk.Label(
+            self.log_resizer,
+            text="━ ━ ━   (Drag to Resize Log Window • Double-Click to Expand)   ━ ━ ━",
+            fg="#64748b",
+            bg="#1e293b",
+            font=("Segoe UI", 7, "bold"),
+            cursor="size_ns",
+        )
+        self.log_resizer_grip.pack(anchor="center", pady=(0, 1))
+
+        # Scrolled Text for Console Logs
         self.log_text = scrolledtext.ScrolledText(
             self.log_container,
-            height=7,
             bg="#020617",
             fg="#38bdf8",
             insertbackground="#ffffff",
@@ -635,6 +657,42 @@ class UpdateManagerApp(tk.Tk):
         )
         self.log_text.pack(fill=tk.BOTH, expand=True)
         self.log_visible = False
+
+        # Resizer Drag, Hover & Double-Click Bindings
+        def _resizer_hover(e):
+            self.log_resizer.configure(bg="#0284c7")
+            self.log_resizer_grip.configure(bg="#0284c7", fg="#ffffff")
+
+        def _resizer_leave(e):
+            self.log_resizer.configure(bg="#1e293b")
+            self.log_resizer_grip.configure(bg="#1e293b", fg="#64748b")
+
+        def _start_resize(e):
+            self._resize_start_y = e.y_root
+            self._resize_start_h = self.log_container.winfo_height()
+
+        def _on_resize_drag(e):
+            if hasattr(self, "_resize_start_y") and hasattr(self, "_resize_start_h"):
+                delta = self._resize_start_y - e.y_root
+                max_h = max(200, int(self.winfo_height() * 0.75))
+                new_h = max(70, min(max_h, self._resize_start_h + delta))
+                self.log_pane_height = new_h
+                self.log_container.configure(height=new_h)
+
+        def _on_resizer_dblclick(e):
+            # Double-click toggles between compact (150px) and tall (380px)
+            if self.log_container.winfo_height() > 220:
+                self.log_pane_height = 150
+            else:
+                self.log_pane_height = 380
+            self.log_container.configure(height=self.log_pane_height)
+
+        for w in (self.log_resizer, self.log_resizer_grip):
+            w.bind("<Enter>", _resizer_hover)
+            w.bind("<Leave>", _resizer_leave)
+            w.bind("<Button-1>", _start_resize)
+            w.bind("<B1-Motion>", _on_resize_drag)
+            w.bind("<Double-Button-1>", _on_resizer_dblclick)
 
     # -----------------------------------------------------------------
     # TAB 1: SOFTWARE UPDATER
@@ -963,7 +1021,9 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             self.btn_toggle_log.config(text="📜 View Live Log")
             self.log_visible = False
         else:
-            self.log_container.pack(fill=tk.X, padx=20, pady=(0, 12))
+            self.log_container.configure(height=self.log_pane_height)
+            self.log_container.pack_propagate(False)
+            self.log_container.pack(fill=tk.X, side=tk.BOTTOM, padx=20, pady=(0, 10))
             self.btn_toggle_log.config(text="✖ Hide Live Log")
             self.log_visible = True
 
