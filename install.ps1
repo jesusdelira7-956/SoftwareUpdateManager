@@ -92,16 +92,52 @@ if ($pyExe) {
 if (-not $pyVersionOk) {
     Write-Warn "Python 3.9+ was not found on this computer. Installing Python 3.12 automatically via winget..."
     try {
-        winget install --id Python.Python.3.12 -e --silent --accept-package-agreements --accept-source-agreements
+        # Run winget to install Python 3.12
+        winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements
         Refresh-EnvPath
-        $pyExe = Get-Command "python" -ErrorAction SilentlyContinue
+        
+        # Check standard installation paths directly to avoid PATH caching delays
+        $knownDirs = @(
+            "$env:LOCALAPPDATA\Programs\Python\Python312",
+            "$env:LOCALAPPDATA\Programs\Python\Python311",
+            "$env:LOCALAPPDATA\Programs\Python\Python310",
+            "C:\Program Files\Python312",
+            "C:\Program Files\Python311",
+            "C:\Program Files\Python310"
+        )
+        foreach ($d in $knownDirs) {
+            if (Test-Path "$d\python.exe") {
+                $env:Path = "$d;$d\Scripts;$env:Path"
+                $pyExe = [pscustomobject]@{ Source = "$d\python.exe" }
+                $pyVersionOk = $true
+                Write-Success "Located newly installed Python at $d"
+                break
+            }
+        }
+
+        if (-not $pyVersionOk) {
+            $wild = Get-ChildItem -Path "$env:LOCALAPPDATA\Programs\Python", "C:\Program Files\Python*" -Filter "python.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($wild) {
+                $d = $wild.DirectoryName
+                $env:Path = "$d;$d\Scripts;$env:Path"
+                $pyExe = [pscustomobject]@{ Source = $wild.FullName }
+                $pyVersionOk = $true
+                Write-Success "Located Python at $($wild.FullName)"
+            }
+        }
+
+        if (-not $pyExe) {
+            $pyExe = Get-Command "python" -ErrorAction SilentlyContinue
+        }
+
         if ($pyExe) {
-            Write-Success "Python 3.12 successfully installed!"
+            Write-Success "Python 3.12 successfully installed and ready!"
         } else {
-            Write-Warn "Python installed. A terminal restart might be required for PATH updates."
+            Write-Warn "Python installed, but terminal restart might be required for PATH updates."
         }
     } catch {
-        Write-Warn "Automatic Python installation via winget failed. Please install Python from https://www.python.org/downloads/."
+        Write-Warn "Automatic Python installation via winget encountered an issue: $_"
+        Write-Warn "Please download and run Python 3.9+ from https://www.python.org/downloads/."
     }
 }
 
