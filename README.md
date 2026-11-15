@@ -5,7 +5,7 @@
 [![Platform: Windows 10/11](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6.svg)](https://microsoft.com)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow.svg?logo=buy-me-a-coffee)](https://buymeacoffee.com/JesseInTheLab)
 
-A portable, zero-dependency Python desktop application for **Windows 10 & Windows 11** that audits hardware specifications, performs deep software inventory, updates software **sequentially one-by-one**, tracks AI/Dev suites, orchestrates browser updates, and cryptographically verifies each installation.
+A portable, high-performance desktop application for **Windows 10 & Windows 11** that audits hardware specifications, performs deep software inventory, updates software **sequentially one-by-one**, tracks AI/Dev suites, orchestrates browser updates, and cryptographically verifies each installation.
 
 ---
 
@@ -19,47 +19,55 @@ If this tool saves you time maintaining your Windows PCs, consider supporting fu
 
 ---
 
-## ⚡ Option A — Fast One-Liner Web Install (Recommended)
+## 🚀 Easy Installation Options (Choose What Works Best For You)
 
-Open **PowerShell** (no prior git or python installation required) and run:
+### 🥇 Option 1: Standalone Single Executable (`.exe`) — Zero Prerequisites!
+> **Best for casual users or running from a USB drive. Requires NO Python, NO Git, and NO Terminal!**
+
+1. Download **`SoftwareUpdateManager.exe`** from [Releases](https://github.com/jesusdelira7-956/SoftwareUpdateManager/releases) (or compile your own with `build_exe.bat`).
+2. Double-click **`SoftwareUpdateManager.exe`**.
+3. Accept the UAC prompt once, and the app launches immediately!
+
+---
+
+### 🥈 Option 2: 1-Click `Install.cmd` (Double-Click from Windows Explorer)
+> **Best if you download the ZIP or clone the repository.**
+
+1. Download or clone this repository.
+2. Double-click **`Install.cmd`**.
+   - Automatically detects if Python is missing and installs Python 3.12 via `winget`.
+   - Generates the Desktop & Start Menu shortcuts with icons.
+   - Launches the app. Zero typing required!
+
+---
+
+### 🥉 Option 3: PowerShell Fast Web One-Liner (Remote Install)
+> **Best for IT admins or quickly provisioning a new Windows machine.**
+
+Open **PowerShell** (Run as Administrator recommended) and paste the **entire line**:
 
 ```powershell
 irm https://raw.githubusercontent.com/jesusdelira7-956/SoftwareUpdateManager/main/install.ps1 | iex
 ```
 
-### What this does automatically:
-1. Verifies Windows Package Manager (`winget`).
-2. Checks for Python 3.9+ (if missing, installs Python 3.12 automatically via winget).
-3. Clones or updates the latest repository to `$env:USERPROFILE\SoftwareUpdateManager`.
-4. Creates a high-resolution **"Software Update Manager"** shortcut on your **Desktop** and **Start Menu**.
-5. Launches the app immediately.
+> [!IMPORTANT]
+> **Make sure to copy the entire command** including `irm` at the beginning and `| iex` at the end! Pasty only the web URL will cause PowerShell to show a `CommandNotFoundException`.
+
+#### What the one-liner does automatically:
+- Checks Windows Package Manager (`winget`).
+- If Python is missing, installs Python 3.12 automatically in the background.
+- Stages the latest application files to `$env:USERPROFILE\SoftwareUpdateManager`.
+- Places high-resolution **"Software Update Manager"** shortcuts on your **Desktop** and **Start Menu**.
+- Launches the application.
 
 ---
 
-## 🛠️ Other Installation Options
-
-<details>
-<summary><b>Option B — One-Click Local Batch Installer</b></summary>
-
-1. Download or clone this repository:
-   ```bash
-   git clone https://github.com/jesusdelira7-956/SoftwareUpdateManager.git
-   cd SoftwareUpdateManager
-   ```
-2. Double-click **`Install_Desktop_Shortcut.bat`**.
-   - If Python is missing, it automatically invokes `install.ps1` to install Python via winget.
-   - It sets up your desktop icon and shortcut.
-</details>
-
-<details>
-<summary><b>Option C — Portable / Manual Run</b></summary>
-
-Run directly with Python (zero external pip packages needed):
+### 🛠️ Option 4: Portable / Developer Run
+Run directly with Python (uses 100% standard library, zero pip packages):
 ```bash
 python update_manager.py
 ```
 Or double-click **`Run_Update_Manager.bat`**.
-</details>
 
 ---
 
@@ -71,6 +79,8 @@ Or double-click **`Run_Update_Manager.bat`**.
   Dynamically detects the host PC's **Hostname, Manufacturer/Model, CPU, GPU (with VRAM), RAM (Total/Usable/Load %), Storage Drives (Used/Free GB), and Windows Build** using fast native Win32 & Registry APIs.
 - **🔍 Stage 2 — Deep Software Inventory & Update Scan**:
   Audits all installed applications across 64-bit, 32-bit, and User Registry hives, queries `winget` for available version upgrades, and checks Windows Update for pending OS patches.
+- **↕ Interactive Draggable Live Console Resizer**:
+  Easily click and drag the splitter bar up or down to expand or shrink the live log drawer, or double-click to instantly toggle between compact and expanded views.
 - **🤖 Dedicated AI Assistants & Developer Suite Tracking**:
   First-class inspection and 1-click **"🤖 AI & Dev Tools"** selection for:
   - **IDEs & AI Editors**: Visual Studio Code, Cursor AI, Android Studio, Antigravity IDE
@@ -95,24 +105,18 @@ Or double-click **`Run_Update_Manager.bat`**.
 ```text
 SoftwareUpdateManager/
 ├── update_manager.py            # Main application & GUI (v2.1 Master Edition)
-├── install.ps1                  # Universal remote & local one-liner installer (Option A)
+├── Install.cmd                  # 1-click double-clickable installer (Option 2)
+├── install.ps1                  # Universal remote & local one-liner installer (Option 3)
+├── build_exe.py                 # Standalone single-file compiler (PyInstaller)
+├── build_exe.bat                # 1-click binary compiler for releases (Option 1)
 ├── setup_shortcut.py            # Dynamic Desktop shortcut & icon generator
-├── Install_Desktop_Shortcut.bat # One-click Desktop shortcut installer (Option B)
-├── Run_Update_Manager.bat       # Portable one-click launcher (Option C)
+├── Install_Desktop_Shortcut.bat # Desktop shortcut installer
+├── Run_Update_Manager.bat       # Portable one-click launcher
 ├── app_icon.ico                 # Multi-resolution Windows application icon
 ├── requirements.txt             # Zero external dependencies (Python standard library)
 ├── LICENSE                      # MIT License
 └── README.md                    # Documentation & Support Links
 ```
-
----
-
-## 🛠️ Command-Line Options
-
-| Flag | Description |
-| :--- | :--- |
-| *(default)* | Automatically requests Administrator UAC elevation at startup and begins the 2-stage scan. |
-| `--no-admin` | Runs in Standard User mode without requesting UAC elevation on startup. |
 
 ---
 

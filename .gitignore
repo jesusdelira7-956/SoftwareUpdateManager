@@ -13,6 +13,11 @@ System_Audit_*.txt
 # Packaged release archives
 *.zip
 
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
 # OS / Editor metadata & user environments
 .DS_Store
 Thumbs.db
