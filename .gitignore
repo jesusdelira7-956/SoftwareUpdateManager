@@ -3,16 +3,20 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Local runtime logs and exported system audit reports
+# Local runtime logs, hardware dumps, and exported system audit reports
 update_history.log
 System_Audit_*.txt
 *.log
+*.tmp
+*.bak
 
 # Packaged release archives
 *.zip
 
-# OS / Editor metadata
+# OS / Editor metadata & user environments
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+.venv/
+env/
