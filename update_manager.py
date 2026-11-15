@@ -678,6 +678,10 @@ class UpdateManagerApp(tk.Tk):
 
         style.configure("Horizontal.TProgressbar", background="#0ea5e9", troughcolor="#1e293b", borderwidth=0)
 
+        # PanedWindow & Sash Divider
+        style.configure("TPanedwindow", background=self.bg_color)
+        style.configure("Sash", sashthickness=6, gripcount=14, background="#334155")
+
     def _build_ui(self):
         # 1. Top Header Bar
         top_frame = ttk.Frame(self, padding=(20, 14, 20, 8))
@@ -742,9 +746,13 @@ class UpdateManagerApp(tk.Tk):
         )
         self.btn_open_winupdate.pack(side=tk.RIGHT, padx=4)
 
-        # 3. Main Multi-Tab Notebook
-        self.notebook = ttk.Notebook(self)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=20, pady=(6, 6))
+        # 3. Main Split-Pane Container (Native Draggable PanedWindow)
+        self.main_paned = ttk.PanedWindow(self, orient=tk.VERTICAL)
+        self.main_paned.pack(fill=tk.BOTH, expand=True, padx=20, pady=(6, 10))
+
+        # Main Multi-Tab Notebook (Upper Pane)
+        self.notebook = ttk.Notebook(self.main_paned)
+        self.main_paned.add(self.notebook, weight=3)
 
         self.tab_updater = ttk.Frame(self.notebook)
         self.tab_specs = ttk.Frame(self.notebook)
@@ -758,29 +766,65 @@ class UpdateManagerApp(tk.Tk):
         self._build_specs_tab()
         self._build_help_tab()
 
-        # 4. Collapsible & Vertically Resizable Live Console Log Drawer (Bottom of Window)
-        self.log_pane_height = 170
+        # 4. Collapsible & Vertically Resizable Live Console Log Drawer (Lower Pane)
+        self.log_pane_height = 180
+        self.log_visible = False
         self.log_container = tk.Frame(
-            self, bg="#020617", highlightbackground="#1e293b", highlightthickness=1
+            self.main_paned, bg="#020617", highlightbackground="#1e293b", highlightthickness=1
         )
-        self.log_container.pack_propagate(False)
 
-        # Draggable Sash / Resizer Splitter Bar (Sits at the top of the log container)
-        self.log_resizer = tk.Frame(
-            self.log_container, bg="#1e293b", height=12, cursor="size_ns"
+        # Header / Resizer Splitter Bar (Sits at the top of the log container)
+        self.log_header = tk.Frame(
+            self.log_container, bg="#1e293b", height=28, cursor="size_ns"
         )
-        self.log_resizer.pack(fill=tk.X, side=tk.TOP)
-        self.log_resizer.pack_propagate(False)
+        self.log_header.pack(fill=tk.X, side=tk.TOP)
+        self.log_header.pack_propagate(False)
 
         self.log_resizer_grip = tk.Label(
-            self.log_resizer,
-            text="━ ━ ━   (Drag to Resize Log Window • Double-Click to Expand)   ━ ━ ━",
-            fg="#64748b",
+            self.log_header,
+            text="━ ━ ━   📜 Live Console & Installation Log   (Drag Divider or Double-Click to Resize)   ━ ━ ━",
+            fg="#94a3b8",
             bg="#1e293b",
-            font=("Segoe UI", 7, "bold"),
+            font=("Segoe UI", 8, "bold"),
             cursor="size_ns",
         )
-        self.log_resizer_grip.pack(anchor="center", pady=(0, 1))
+        self.log_resizer_grip.pack(side=tk.LEFT, fill=tk.Y, padx=10)
+
+        # Quick Control Buttons on the Right Side of the Header
+        btn_hide = tk.Button(
+            self.log_header, text="✖ Hide", command=self.toggle_log_pane,
+            bg="#334155", fg="#cbd5e1", activebackground="#dc2626", activeforeground="#ffffff",
+            relief="flat", font=("Segoe UI", 8), padx=6, pady=1, cursor="hand2"
+        )
+        btn_hide.pack(side=tk.RIGHT, padx=(2, 6), pady=2)
+
+        btn_copy = tk.Button(
+            self.log_header, text="📋 Copy", command=self.copy_log_to_clipboard,
+            bg="#334155", fg="#cbd5e1", activebackground="#0284c7", activeforeground="#ffffff",
+            relief="flat", font=("Segoe UI", 8), padx=6, pady=1, cursor="hand2"
+        )
+        btn_copy.pack(side=tk.RIGHT, padx=2, pady=2)
+
+        btn_clear = tk.Button(
+            self.log_header, text="🗑 Clear", command=self.clear_log,
+            bg="#334155", fg="#cbd5e1", activebackground="#0284c7", activeforeground="#ffffff",
+            relief="flat", font=("Segoe UI", 8), padx=6, pady=1, cursor="hand2"
+        )
+        btn_clear.pack(side=tk.RIGHT, padx=2, pady=2)
+
+        btn_expanded = tk.Button(
+            self.log_header, text="🔼 Expanded (360px)", command=lambda: self.set_log_height(360),
+            bg="#334155", fg="#38bdf8", activebackground="#0369a1", activeforeground="#ffffff",
+            relief="flat", font=("Segoe UI", 8, "bold"), padx=6, pady=1, cursor="hand2"
+        )
+        btn_expanded.pack(side=tk.RIGHT, padx=2, pady=2)
+
+        btn_compact = tk.Button(
+            self.log_header, text="🔽 Compact (160px)", command=lambda: self.set_log_height(160),
+            bg="#334155", fg="#38bdf8", activebackground="#0369a1", activeforeground="#ffffff",
+            relief="flat", font=("Segoe UI", 8, "bold"), padx=6, pady=1, cursor="hand2"
+        )
+        btn_compact.pack(side=tk.RIGHT, padx=2, pady=2)
 
         # Scrolled Text for Console Logs
         self.log_text = scrolledtext.ScrolledText(
@@ -794,38 +838,43 @@ class UpdateManagerApp(tk.Tk):
             pady=6,
         )
         self.log_text.pack(fill=tk.BOTH, expand=True)
-        self.log_visible = False
 
         # Resizer Drag, Hover & Double-Click Bindings
         def _resizer_hover(e):
-            self.log_resizer.configure(bg="#0284c7")
-            self.log_resizer_grip.configure(bg="#0284c7", fg="#ffffff")
+            self.log_header.configure(bg="#0369a1")
+            self.log_resizer_grip.configure(bg="#0369a1", fg="#ffffff")
 
         def _resizer_leave(e):
-            self.log_resizer.configure(bg="#1e293b")
-            self.log_resizer_grip.configure(bg="#1e293b", fg="#64748b")
+            self.log_header.configure(bg="#1e293b")
+            self.log_resizer_grip.configure(bg="#1e293b", fg="#94a3b8")
 
+        self._drag_data = {}
         def _start_resize(e):
-            self._resize_start_y = e.y_root
-            self._resize_start_h = self.log_container.winfo_height()
+            self._drag_data["y"] = e.y_root
+            try:
+                self._drag_data["sash"] = self.main_paned.sashpos(0)
+            except Exception:
+                self._drag_data["sash"] = self.main_paned.winfo_height() - self.log_pane_height
 
         def _on_resize_drag(e):
-            if hasattr(self, "_resize_start_y") and hasattr(self, "_resize_start_h"):
-                delta = self._resize_start_y - e.y_root
-                max_h = max(200, int(self.winfo_height() * 0.75))
-                new_h = max(70, min(max_h, self._resize_start_h + delta))
-                self.log_pane_height = new_h
-                self.log_container.configure(height=new_h)
+            if "y" in self._drag_data and "sash" in self._drag_data:
+                delta = e.y_root - self._drag_data["y"]
+                total_h = self.main_paned.winfo_height()
+                new_pos = max(180, min(total_h - 70, self._drag_data["sash"] + delta))
+                try:
+                    self.main_paned.sashpos(0, new_pos)
+                    self.log_pane_height = max(70, total_h - new_pos)
+                except Exception:
+                    pass
 
         def _on_resizer_dblclick(e):
-            # Double-click toggles between compact (150px) and tall (380px)
-            if self.log_container.winfo_height() > 220:
-                self.log_pane_height = 150
+            curr_h = self.log_container.winfo_height()
+            if curr_h > 240:
+                self.set_log_height(160)
             else:
-                self.log_pane_height = 380
-            self.log_container.configure(height=self.log_pane_height)
+                self.set_log_height(360)
 
-        for w in (self.log_resizer, self.log_resizer_grip):
+        for w in (self.log_header, self.log_resizer_grip):
             w.bind("<Enter>", _resizer_hover)
             w.bind("<Leave>", _resizer_leave)
             w.bind("<Button-1>", _start_resize)
@@ -885,7 +934,7 @@ class UpdateManagerApp(tk.Tk):
         table_container.pack(fill=tk.BOTH, expand=True, pady=2)
 
         columns = ("name", "id", "current", "available", "status")
-        self.tree = ttk.Treeview(table_container, columns=columns, show="headings", selectmode="extended")
+        self.tree = ttk.Treeview(table_container, columns=columns, show="headings", selectmode="extended", height=7)
 
         self.tree.heading("name", text="Application Name", anchor="w")
         self.tree.heading("id", text="Package ID", anchor="w")
@@ -1057,7 +1106,7 @@ class UpdateManagerApp(tk.Tk):
         inv_table_frame.pack(fill=tk.BOTH, expand=True)
 
         inv_cols = ("name", "version", "publisher", "scope")
-        self.inv_tree = ttk.Treeview(inv_table_frame, columns=inv_cols, show="headings")
+        self.inv_tree = ttk.Treeview(inv_table_frame, columns=inv_cols, show="headings", height=7)
         self.inv_tree.heading("name", text="Installed Application Name", anchor="w")
         self.inv_tree.heading("version", text="Installed Version", anchor="center")
         self.inv_tree.heading("publisher", text="Publisher / Vendor", anchor="w")
@@ -1082,7 +1131,7 @@ class UpdateManagerApp(tk.Tk):
 
         help_text = scrolledtext.ScrolledText(
             help_frame, bg=self.card_bg, fg=self.text_color, font=("Segoe UI", 10),
-            relief="flat", wrap=tk.WORD, padx=12, pady=8
+            relief="flat", wrap=tk.WORD, padx=12, pady=8, height=10
         )
         help_text.pack(fill=tk.BOTH, expand=True)
 
@@ -1165,17 +1214,46 @@ By requesting Administrator elevation once when the app starts (shown by the gre
     # -----------------------------------------------------------------
     # LOGGING & UI HELPERS
     # -----------------------------------------------------------------
+    def set_log_height(self, target_h: int):
+        self.log_pane_height = target_h
+        if not self.log_visible:
+            self.toggle_log_pane()
+            return
+        total_h = self.main_paned.winfo_height()
+        if total_h <= 100:
+            total_h = max(200, self.winfo_height() - 100)
+        new_sash = max(180, min(total_h - 70, total_h - target_h))
+        try:
+            self.main_paned.sashpos(0, new_sash)
+        except Exception:
+            pass
+
     def toggle_log_pane(self):
         if self.log_visible:
-            self.log_container.pack_forget()
+            try:
+                self.main_paned.forget(self.log_container)
+            except Exception:
+                pass
             self.btn_toggle_log.config(text="📜 View Live Log")
             self.log_visible = False
         else:
-            self.log_container.configure(height=self.log_pane_height)
-            self.log_container.pack_propagate(False)
-            self.log_container.pack(fill=tk.X, side=tk.BOTTOM, padx=20, pady=(0, 10))
+            try:
+                self.main_paned.add(self.log_container, weight=1)
+            except Exception:
+                pass
             self.btn_toggle_log.config(text="✖ Hide Live Log")
             self.log_visible = True
+            self.after(50, lambda: self.set_log_height(self.log_pane_height))
+
+    def clear_log(self):
+        self.log_text.delete("1.0", tk.END)
+
+    def copy_log_to_clipboard(self):
+        content = self.log_text.get("1.0", tk.END).strip()
+        if content:
+            self.clipboard_clear()
+            self.clipboard_append(content)
+            self.log_ui("[INFO] Log output copied to Windows clipboard.")
 
     def log_ui(self, msg: str, to_file=True):
         self.log_queue.put(msg)
