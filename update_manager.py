@@ -819,6 +819,44 @@ class UpdateManagerApp(tk.Tk):
         )
         self.btn_open_winupdate.pack(side=tk.RIGHT, padx=4)
 
+        # 2b. Microsoft Store Updates Reminder Banner (Option C)
+        self.store_notice_frame = tk.Frame(
+            self, bg="#1e1b4b", highlightbackground="#6366f1", highlightthickness=1, padx=14, pady=6
+        )
+        self.store_notice_lbl = tk.Label(
+            self.store_notice_frame,
+            text="🛍️ Microsoft Store Apps: UWP & in-box apps (Notepad, Paint, Xbox, Snipping Tool) update via the Store.",
+            bg="#1e1b4b", fg="#c7d2fe", font=("Segoe UI", 9, "bold"), anchor="w", justify=tk.LEFT
+        )
+        self.store_notice_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.btn_open_store = tk.Button(
+            self.store_notice_frame,
+            text="Open Store Updates",
+            command=self.open_microsoft_store,
+            bg="#4f46e5", fg="#ffffff", activebackground="#4338ca", activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=2, cursor="hand2"
+        )
+        self.btn_open_store.pack(side=tk.RIGHT, padx=3)
+
+        self.btn_sync_store = tk.Button(
+            self.store_notice_frame,
+            text="⚡ Sync Store Updates",
+            command=self.trigger_store_updates,
+            bg="#312e81", fg="#e0e7ff", activebackground="#3730a3", activeforeground="#ffffff",
+            font=("Segoe UI", 9), relief="flat", padx=8, pady=2, cursor="hand2"
+        )
+        self.btn_sync_store.pack(side=tk.RIGHT, padx=3)
+
+        btn_dismiss_store = tk.Button(
+            self.store_notice_frame,
+            text="✖",
+            command=lambda: self.store_notice_frame.pack_forget(),
+            bg="#1e1b4b", fg="#a5b4fc", activebackground="#312e81", activeforeground="#ffffff",
+            font=("Segoe UI", 8, "bold"), relief="flat", padx=4, pady=1, cursor="hand2"
+        )
+        btn_dismiss_store.pack(side=tk.RIGHT, padx=(3, 0))
+
         # 3. Main Split-Pane Container (Native Draggable PanedWindow)
         self.main_paned = ttk.PanedWindow(self, orient=tk.VERTICAL)
         self.main_paned.pack(fill=tk.BOTH, expand=True, padx=20, pady=(6, 10))
@@ -1069,6 +1107,11 @@ class UpdateManagerApp(tk.Tk):
         )
         self.btn_browsers.pack(side=tk.LEFT, padx=6)
 
+        self.btn_store = ttk.Button(
+            btn_row, text="🛍️ Store Apps", style="Secondary.TButton", command=self.trigger_store_updates
+        )
+        self.btn_store.pack(side=tk.LEFT, padx=6)
+
         # Silent Mode Checkbox
         chk_silent = tk.Checkbutton(
             btn_row,
@@ -1262,12 +1305,14 @@ When you launch the app (or click "🔄 Full System & Update Scan"):
   • STAGE 2 (Deep Software & Update Scan): Next, it scans the Windows Registry for every installed application and checks Microsoft's Windows Package Manager (Winget) for newer versions, plus checks for pending Windows OS updates.
 
 --------------------------------------------------------------------------------
-3. SPECIALIZED AI & DEV SUITES + BROWSER ORCHESTRATION
+3. SPECIALIZED AI & DEV SUITES, BROWSERS & MICROSOFT STORE
 --------------------------------------------------------------------------------
   • 🤖 AI & Dev Tools:
     Click the "🤖 AI & Dev Tools" button in the filter toolbar to instantly select and prioritize updates for AI assistants and developer suites (Antigravity IDE, Cursor, VS Code, Android Studio, GitHub Copilot, Ollama, LM Studio, Pinokio, Docker Desktop, etc.).
   • 🌐 Browser Background Updates:
     Click "🌐 Update Browsers" to silently invoke native background updater services for Google Chrome, Microsoft Edge, Brave, and Mozilla Firefox.
+  • 🛍️ Microsoft Store & In-Box UWP Updates:
+    Click "🛍️ Store Apps" or use the top banner to trigger the Windows Store background update service (InstallService) and launch the Microsoft Store directly to "Updates & downloads" where queued updates (Notepad, Paint, Xbox, Snipping Tool, HP) can be monitored and updated.
 
 --------------------------------------------------------------------------------
 4. HOW TO UPDATE YOUR SOFTWARE
@@ -1434,6 +1479,74 @@ By requesting Administrator elevation once when the app starts (shown by the gre
 
         threading.Thread(target=_run, daemon=True).start()
 
+    def open_microsoft_store(self):
+        """Open Microsoft Store directly to Library > Updates & downloads."""
+        try:
+            subprocess.Popen(["explorer.exe", "ms-windows-store://downloadsandupdates"])
+            self.log_ui("[MICROSOFT STORE] Opened Microsoft Store Updates & Downloads page.")
+        except Exception as e:
+            self.log_ui(f"[MICROSOFT STORE] Could not launch Microsoft Store: {e}")
+
+    def trigger_store_updates(self):
+        """
+        Synchronized Store update routine (Option C):
+        1. Triggers Windows Store background InstallService scan task.
+        2. Queries WinGet for any available msstore updates.
+        3. Launches Microsoft Store directly to Updates & downloads for user monitoring.
+        """
+        def _run():
+            self.log_ui("=" * 68)
+            self.log_ui("[MICROSOFT STORE] Initiating Microsoft Store & UWP App Updates...")
+            self.log_ui("=" * 68)
+
+            # 1. Trigger Windows Store background scan task
+            try:
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                res_task = subprocess.run(
+                    ["powershell", "-NoProfile", "-Command", "Start-ScheduledTask -TaskPath '\\Microsoft\\Windows\\InstallService\\' -TaskName 'ScanForUpdates' -ErrorAction SilentlyContinue"],
+                    capture_output=True, text=True, errors="replace", timeout=10, startupinfo=startupinfo
+                )
+                if res_task.returncode == 0:
+                    self.log_ui("  [✓] Background Store update service (InstallService) triggered.")
+                else:
+                    self.log_ui(f"  [!] InstallService returned exit code {res_task.returncode}")
+            except Exception as e:
+                self.log_ui(f"  [!] Background Store update service signal failed: {e}")
+
+            # 2. Check and upgrade any msstore packages via WinGet
+            try:
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                self.log_ui("  [*] Checking WinGet for packages from msstore source...")
+                cmd_winget = [
+                    "winget", "upgrade", "--all", "-s", "msstore",
+                    "--accept-package-agreements", "--accept-source-agreements",
+                    "--include-unknown"
+                ]
+                res_winget = subprocess.run(
+                    cmd_winget, capture_output=True, text=True, errors="replace", timeout=60, startupinfo=startupinfo
+                )
+                if res_winget.stdout:
+                    for line in res_winget.stdout.splitlines():
+                        clean = line.strip()
+                        if clean and not clean.startswith(("-", "=", "#")):
+                            self.log_ui(f"  [STORE-WINGET] {clean}")
+            except Exception as e:
+                self.log_ui(f"  [!] WinGet msstore check failed: {e}")
+
+            # 3. Open Microsoft Store Updates & Downloads page
+            self.log_ui("  [*] Launching Microsoft Store to Updates & downloads page...")
+            try:
+                subprocess.Popen(["explorer.exe", "ms-windows-store://downloadsandupdates"])
+                self.log_ui("  [✓] Microsoft Store opened: Click 'Update all' if queued downloads need manual confirmation.")
+            except Exception as e:
+                self.log_ui(f"  [!] Could not open Microsoft Store: {e}")
+
+            self.log_ui("=" * 68)
+
+        threading.Thread(target=_run, daemon=True).start()
+
     def request_stop_batch(self):
         if self.is_updating:
             self.stop_requested = True
@@ -1557,6 +1670,19 @@ By requesting Administrator elevation once when the app starts (shown by the gre
         except Exception as e:
             self.log_ui(f"[SCAN INFO] Windows Update check skipped/note: {e}")
 
+        # STAGE 2D: Microsoft Store Service Sync
+        try:
+            self.log_ui("[STAGE 2] Checking Microsoft Store background update service...")
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", "Start-ScheduledTask -TaskPath '\\Microsoft\\Windows\\InstallService\\' -TaskName 'ScanForUpdates' -ErrorAction SilentlyContinue"],
+                capture_output=True, text=True, errors="replace", timeout=8, startupinfo=startupinfo
+            )
+            self.log_ui("  [✓] Microsoft Store InstallService background scan signaled.")
+        except Exception:
+            pass
+
         self.after(0, lambda: self.progress_var.set(100))
         self.after(80, lambda: self._on_scan_finished(upgradable_apps))
 
@@ -1642,9 +1768,13 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             self.win_notice_lbl.config(
                 text=f"🔔 {len(self.windows_updates)} Windows OS Update(s) Available ({kb_summary}). Installed separately via Windows Update."
             )
-            self.win_notice_frame.pack(fill=tk.X, padx=20, pady=(2, 4), before=self.notebook)
+            self.win_notice_frame.pack(fill=tk.X, padx=20, pady=(2, 4), before=self.main_paned)
         else:
             self.win_notice_frame.pack_forget()
+
+        # Display Microsoft Store notice banner (Option C)
+        if not self.store_notice_frame.winfo_ismapped():
+            self.store_notice_frame.pack(fill=tk.X, padx=20, pady=(2, 4), before=self.main_paned)
 
         self.lbl_status.config(
             text=f"✅ Scan complete on {self.specs.get('hostname', 'PC')}: {len(self.updates_list)} software updates available across {len(self.installed_apps)} installed apps."
