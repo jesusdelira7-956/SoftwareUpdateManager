@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0",
+  "last_updated": "2026-11-16",
+  "blocked_publishers": [
+    "ByteFence",
+    "Digital Communications Inc",
+    "Lavabits",
+    "Safer Technologies",
+    "Reason Cybersecurity",
+    "PC HelpSoft",
+    "Auslogics",
+    "IObit",
+    "Mindspark Interactive",
+    "Visicom Media",
+    "SweetLabs"
+  ],
+  "blocked_name_patterns": [
+    "segurazo",
+    "rav endpoint",
+    "bytefence",
+    "driver booster",
+    "driver easy",
+    "driverpack",
+    "pc accelerator",
+    "registry cleaner",
+    "browser hijacker",
+    "chromium_portable",
+    "web companion",
+    "pokki",
+    "ask toolbar",
+    "conduit",
+    "macKeeper",
+    "search protect",
+    "spyhunter"
+  ],
+  "blocked_winget_ids": [
+    "IObit.DriverBooster",
+    "IObit.AdvancedSystemCare",
+    "Lavasoft.WebCompanion"
+  ],
+  "high_risk_paths": [
+    "\\appdata\\local\\temp\\",
+    "\\windows\\temp\\",
+    "\\users\\public\\",
+    "\\programdata\\",
+    "\\appdata\\roaming\\"
+  ]
+}

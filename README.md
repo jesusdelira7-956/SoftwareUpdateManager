@@ -1,11 +1,11 @@
-# 🛡️ Windows Software Update Manager & System Auditor (v2.2)
+# 🛡️ Windows Software Update Manager & System Auditor (v2.3)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-brightgreen.svg)](https://www.python.org/downloads/)
 [![Platform: Windows 10/11](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6.svg)](https://microsoft.com)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow.svg?logo=buy-me-a-coffee)](https://buymeacoffee.com/JesseInTheLab)
 
-A portable, high-performance desktop application for **Windows 10 & Windows 11** that audits hardware specifications, performs deep software inventory, updates software **sequentially one-by-one**, audits all AI suites across Registry/Store/PATH, reconciles developer CLI versions, orchestrates browser updates, and cryptographically verifies each installation.
+A portable, high-performance desktop application for **Windows 10 & Windows 11** that audits hardware specifications, performs deep software inventory, updates software **sequentially one-by-one**, provides an offline/cloud **Pre-Update Security & Trust Gate** against PUPs/adware, audits all AI suites across Registry/Store/PATH, reconciles developer CLI versions, orchestrates browser updates, and cryptographically verifies each installation.
 
 ---
 
@@ -73,6 +73,15 @@ Or double-click **`Run_Update_Manager.bat`**.
 
 ## ✨ Key Features
 
+- **🛡️ Pre-Update Security & Trust Gate (v2.3 New!)**:
+  To protect against inadvertent installation or legitimization of spyware, adware, Potentially Unwanted Programs (PUPs), or hijacked binaries:
+  - **Offline Authenticode Signature Verification**: Evaluates executables via PowerShell `Get-AuthenticodeSignature` to confirm valid vendor code signatures and publisher identity.
+  - **Suspicious Install Path Heuristics**: Detects executables residing in anomalous or high-risk folders (`%TEMP%`, `C:\Users\Public`, `\ProgramData\`, `%AppData%\Roaming`).
+  - **Built-in PUP & Adware Blocklist**: Evaluates against `pup_blocklist.json` covering notorious bundleware, hijackers, and driver boosters.
+  - **Hidden SystemComponent Audit**: Detects stealth registry entries (`SystemComponent = 1` or missing `UninstallString`) commonly used by spyware to hide from the Control Panel.
+  - **Optional Cloud Reputation (ThreatFox / MalwareBazaar / VirusTotal)**: Computes SHA-256 binary hashes and cross-references active malware databases without external dependencies.
+  - **Tri-Tier Trust Badges & Safe Defaults**: Displays `🟢 Trusted`, `🟡 Unverified / Caution`, and `🔴 High Risk / Blocked`. High-risk items are permanently locked out of auto-batch updates, and unverified items require explicit user opt-in ("Allow Unverified" checkbox).
+  - **Right-Click Security Context Menu**: Right-click any package to inspect file location, view Authenticode details, or look up its SHA-256 hash on VirusTotal.
 - **⚡ Automatic Administrator Elevation at Startup**:
   Requests UAC Administrator privileges on launch so system-wide installers (Visual C++ Runtimes, .NET, VLC, 7-Zip, Drivers) install smoothly without interrupting you with repeated permission prompts.
 - **🛡️ Windows System Restore Point Safety Net**:
@@ -113,7 +122,9 @@ Or double-click **`Run_Update_Manager.bat`**.
 
 ```text
 SoftwareUpdateManager/
-├── update_manager.py            # Main application & GUI (v2.2 Master Edition)
+├── update_manager.py            # Main application & GUI (v2.3 Master Edition)
+├── security_auditor.py          # Pre-Update Security & Trust Gate (100% Python stdlib)
+├── pup_blocklist.json           # Known PUP, adware, and high-risk path definitions
 ├── Install.cmd                  # 1-click double-clickable installer (Option 2)
 ├── install.ps1                  # Universal remote & local one-liner installer (Option 3)
 ├── build_exe.py                 # Standalone single-file compiler (PyInstaller)

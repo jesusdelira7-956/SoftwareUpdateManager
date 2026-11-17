@@ -32,8 +32,10 @@ from tkinter import ttk, messagebox, scrolledtext, filedialog
 from datetime import datetime
 from pathlib import Path
 
+from security_auditor import SecurityAuditor
+
 APP_NAME = "Software Update Manager"
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.3.0"
 APP_DIR = Path(__file__).parent.resolve()
 LOG_FILE = APP_DIR / "update_history.log"
 DONATION_URL = "https://buymeacoffee.com/JesseInTheLab"
@@ -868,12 +870,33 @@ def scan_installed_registry_apps() -> list:
 
                             version = ""
                             publisher = ""
+                            install_loc = ""
+                            display_icon = ""
+                            uninstall_str = ""
+                            sys_comp = 0
                             try:
                                 version, _ = winreg.QueryValueEx(subkey, "DisplayVersion")
                             except OSError:
                                 pass
                             try:
                                 publisher, _ = winreg.QueryValueEx(subkey, "Publisher")
+                            except OSError:
+                                pass
+                            try:
+                                install_loc, _ = winreg.QueryValueEx(subkey, "InstallLocation")
+                            except OSError:
+                                pass
+                            try:
+                                display_icon, _ = winreg.QueryValueEx(subkey, "DisplayIcon")
+                            except OSError:
+                                pass
+                            try:
+                                uninstall_str, _ = winreg.QueryValueEx(subkey, "UninstallString")
+                            except OSError:
+                                pass
+                            try:
+                                sc_val, _ = winreg.QueryValueEx(subkey, "SystemComponent")
+                                sys_comp = int(sc_val)
                             except OSError:
                                 pass
 
@@ -884,6 +907,10 @@ def scan_installed_registry_apps() -> list:
                                     "version": str(version).strip() if version else "—",
                                     "publisher": str(publisher).strip() if publisher else "Unknown Publisher",
                                     "scope": scope,
+                                    "install_location": str(install_loc).strip() if install_loc else "",
+                                    "display_icon": str(display_icon).strip() if display_icon else "",
+                                    "uninstall_string": str(uninstall_str).strip() if uninstall_str else "",
+                                    "system_component": sys_comp,
                                 }
                     except OSError:
                         continue
@@ -1080,6 +1107,10 @@ class UpdateManagerApp(tk.Tk):
         self.inv_search_var = tk.StringVar()
         self.inv_search_var.trace_add("write", lambda *_: self._refresh_inventory_tree())
         self.silent_mode_var = tk.BooleanVar(value=False)
+        self.include_unverified_var = tk.BooleanVar(value=False)
+
+        # Pre-Update Security & Trust Gate
+        self.security_auditor = SecurityAuditor()
 
         self._configure_styles()
         self._build_ui()
@@ -1456,20 +1487,22 @@ class UpdateManagerApp(tk.Tk):
         table_container = ttk.Frame(self.tab_updater, style="Card.TFrame", padding=(1, 1, 1, 1))
         table_container.pack(fill=tk.BOTH, expand=True, pady=2)
 
-        columns = ("name", "id", "current", "available", "status")
+        columns = ("name", "id", "current", "available", "trust", "status")
         self.tree = ttk.Treeview(table_container, columns=columns, show="headings", selectmode="extended", height=7)
 
         self.tree.heading("name", text="Application Name", anchor="w")
         self.tree.heading("id", text="Package ID", anchor="w")
         self.tree.heading("current", text="Installed Version", anchor="center")
         self.tree.heading("available", text="New Version", anchor="center")
+        self.tree.heading("trust", text="Trust Gate", anchor="center")
         self.tree.heading("status", text="Update Status", anchor="center")
 
-        self.tree.column("name", width=300, minwidth=180, anchor="w")
-        self.tree.column("id", width=240, minwidth=150, anchor="w")
-        self.tree.column("current", width=130, minwidth=90, anchor="center")
-        self.tree.column("available", width=130, minwidth=90, anchor="center")
-        self.tree.column("status", width=170, minwidth=120, anchor="center")
+        self.tree.column("name", width=260, minwidth=170, anchor="w")
+        self.tree.column("id", width=210, minwidth=140, anchor="w")
+        self.tree.column("current", width=115, minwidth=85, anchor="center")
+        self.tree.column("available", width=115, minwidth=85, anchor="center")
+        self.tree.column("trust", width=130, minwidth=110, anchor="center")
+        self.tree.column("status", width=160, minwidth=120, anchor="center")
 
         tree_scroll_y = ttk.Scrollbar(table_container, orient=tk.VERTICAL, command=self.tree.yview)
         self.tree.configure(yscrollcommand=tree_scroll_y.set)
@@ -1482,6 +1515,10 @@ class UpdateManagerApp(tk.Tk):
         self.tree.tag_configure("verified", foreground="#10b981")
         self.tree.tag_configure("reboot", foreground="#fbbf24")
         self.tree.tag_configure("failed", foreground="#ef4444")
+        self.tree.tag_configure("trust_risk", foreground="#ef4444")
+        self.tree.tag_configure("trust_caution", foreground="#fbbf24")
+
+        self._setup_tree_context_menu()
 
         # Bottom Controls & Progress Bar
         control_frame = ttk.Frame(self.tab_updater, padding=(0, 8, 0, 4))
@@ -1550,7 +1587,18 @@ class UpdateManagerApp(tk.Tk):
             activebackground=self.bg_color, activeforeground="#ffffff",
             font=("Segoe UI", 9, "bold")
         )
-        chk_restore.pack(side=tk.LEFT, padx=(4, 10))
+        chk_restore.pack(side=tk.LEFT, padx=(4, 8))
+
+        # Security Gate: Allow Unverified Checkbox
+        chk_unverified = tk.Checkbutton(
+            btn_row,
+            text="Allow Unverified",
+            variable=self.include_unverified_var,
+            bg=self.bg_color, fg="#fde047", selectcolor="#1e293b",
+            activebackground=self.bg_color, activeforeground="#ffffff",
+            font=("Segoe UI", 9)
+        )
+        chk_unverified.pack(side=tk.LEFT, padx=(4, 10))
 
         self.btn_toggle_log = ttk.Button(btn_row, text="📜 View Live Log", style="Secondary.TButton", command=self.toggle_log_pane)
         self.btn_toggle_log.pack(side=tk.RIGHT, padx=2)
@@ -2339,6 +2387,32 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                     source = line[idx_src:].strip() if idx_src < len(line) else "winget"
 
                     if pkg_id and avail_ver and pkg_id != "Id":
+                        # Match with installed registry app details for security evaluation
+                        matched_reg = {}
+                        for inst in installed:
+                            if inst["name"].lower() == name.lower() or inst["name"].lower() in name.lower() or name.lower() in inst["name"].lower():
+                                matched_reg = inst
+                                break
+
+                        # Pre-Update Security & Trust Gate Audit
+                        audit_input = {
+                            "name": name,
+                            "id": pkg_id,
+                            "winget_id": pkg_id,
+                            "publisher": matched_reg.get("publisher", ""),
+                            "display_icon": matched_reg.get("display_icon", ""),
+                            "install_location": matched_reg.get("install_location", ""),
+                            "uninstall_string": matched_reg.get("uninstall_string", ""),
+                            "system_component": matched_reg.get("system_component", 0),
+                        }
+                        sec_verdict = self.security_auditor.audit_application(audit_input)
+
+                        tag = "pending"
+                        if sec_verdict.get("tier") == "HIGH_RISK":
+                            tag = "failed"
+                        elif sec_verdict.get("tier") == "CAUTION":
+                            tag = "reboot"
+
                         upgradable_apps.append({
                             "name": name,
                             "id": pkg_id,
@@ -2346,7 +2420,10 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                             "available": avail_ver,
                             "source": source,
                             "status": "Pending Update",
-                            "tag": "pending",
+                            "tag": tag,
+                            "security": sec_verdict,
+                            "trust": sec_verdict.get("badge", "🟢 Trusted"),
+                            "trust_tier": sec_verdict.get("tier", "TRUSTED"),
                         })
         except Exception as e:
             self.log_ui(f"[SCAN ERROR] Winget upgrade check failed: {e}")
@@ -2508,7 +2585,7 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                 continue
             self.tree.insert(
                 "", tk.END,
-                values=(app["name"], app["id"], app["current"], app["available"], app["status"]),
+                values=(app["name"], app["id"], app["current"], app["available"], app.get("trust", "🟢 Trusted"), app["status"]),
                 tags=(app["tag"],)
             )
 
@@ -2577,6 +2654,141 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             daemon=True
         ).start()
 
+    def _setup_tree_context_menu(self):
+        """Create and bind right-click context menu for application inspection & actions."""
+        self.context_menu = tk.Menu(self, tearoff=0, bg="#1e293b", fg="#f8fafc", activebackground="#334155", activeforeground="#ffffff")
+        self.context_menu.add_command(label="🛡️ View Security & Trust Details", command=self._show_security_details)
+        self.context_menu.add_command(label="🔍 Inspect on VirusTotal", command=self._open_virustotal_inspection)
+        self.context_menu.add_command(label="📂 Open File Location", command=self._open_app_file_location)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="⚡ Update Highlighted Only", command=self.start_update_selected)
+
+        def _on_right_click(event):
+            item = self.tree.identify_row(event.y)
+            if item:
+                self.tree.selection_set(item)
+                self.context_menu.post(event.x_root, event.y_root)
+
+        self.tree.bind("<Button-3>", _on_right_click)
+
+    def _get_selected_app(self):
+        sel = self.tree.selection()
+        if not sel:
+            return None
+        item_id = sel[0]
+        vals = self.tree.item(item_id, "values")
+        if not vals or len(vals) < 2:
+            return None
+        target_pkg = vals[1]
+        for app in self.updates_list:
+            if app["id"] == target_pkg:
+                return app
+        return None
+
+    def _show_security_details(self):
+        app = self._get_selected_app()
+        if not app:
+            messagebox.showinfo("Security Audit", "Please select an application from the table first.", parent=self)
+            return
+
+        sec = app.get("security", {})
+        win = tk.Toplevel(self)
+        win.title(f"🛡️ Security & Trust Details: {app.get('name')}")
+        win.geometry("680x500")
+        win.configure(bg="#0f172a")
+        win.transient(self)
+
+        try:
+            x = self.winfo_rootx() + (self.winfo_width() // 2) - 340
+            y = self.winfo_rooty() + (self.winfo_height() // 2) - 250
+            win.geometry(f"+{max(10, x)}+{max(10, y)}")
+        except Exception:
+            pass
+
+        p = tk.Frame(win, bg="#1e293b", padx=16, pady=12, highlightbackground="#3b82f6", highlightthickness=1)
+        p.pack(fill=tk.X, padx=14, pady=12)
+
+        tk.Label(p, text=f"🛡️ {app.get('name')} ({app.get('id')})", bg="#1e293b", fg="#f8fafc", font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        tk.Label(p, text=f"Trust Verdict: {sec.get('badge', 'Unknown')}", bg="#1e293b", fg="#38bdf8", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(2, 0))
+
+        content = tk.Frame(win, bg="#0f172a", padx=14)
+        content.pack(fill=tk.BOTH, expand=True)
+
+        info_box = scrolledtext.ScrolledText(content, bg="#111827", fg="#e2e8f0", insertbackground="#ffffff", font=("Consolas", 9), relief="flat")
+        info_box.pack(fill=tk.BOTH, expand=True, pady=4)
+
+        report_lines = [
+            f"Application Name  : {app.get('name')}",
+            f"Package ID        : {app.get('id')}",
+            f"Current Version   : {app.get('current')}",
+            f"Available Version : {app.get('available')}",
+            f"Trust Tier        : {sec.get('tier', 'Unknown')} ({sec.get('badge', '')})",
+            f"Auto-Update Safe  : {'YES (Trusted)' if sec.get('allow_auto_update') else 'NO (Requires Opt-In / Blocked)'}",
+            "-" * 65,
+            f"Executable Path   : {sec.get('exe_path', 'Not Resolved')}",
+            f"SHA-256 Digest    : {sec.get('sha256') or 'N/A'}",
+            f"Signature Status  : {sec.get('signature_status', 'Unknown')}",
+            f"Signer Subject    : {sec.get('signer') or 'Unsigned / None'}",
+            "-" * 65,
+            "HEURISTIC & INTEGRITY FINDINGS:",
+        ]
+        reasons = sec.get("reasons", [])
+        if reasons:
+            for r in reasons:
+                report_lines.append(f"  • {r}")
+        else:
+            report_lines.append("  • No anomalies detected. Binary signature and install path are verified.")
+
+        info_box.insert(tk.END, "\n".join(report_lines))
+        info_box.config(state="disabled")
+
+        btn_bar = tk.Frame(win, bg="#0f172a", padx=14, pady=10)
+        btn_bar.pack(fill=tk.X)
+
+        if sec.get("vt_url"):
+            tk.Button(
+                btn_bar, text="🔍 VirusTotal Report", command=lambda: webbrowser.open(sec["vt_url"]),
+                bg="#2563eb", fg="#ffffff", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=4, cursor="hand2"
+            ).pack(side=tk.LEFT, padx=(0, 6))
+
+        if sec.get("exe_path") and os.path.exists(sec["exe_path"]):
+            tk.Button(
+                btn_bar, text="📂 Open File Location", command=lambda: subprocess.Popen(f'explorer.exe /select,"{sec["exe_path"]}"'),
+                bg="#334155", fg="#f8fafc", font=("Segoe UI", 9), relief="flat", padx=10, pady=4, cursor="hand2"
+            ).pack(side=tk.LEFT, padx=6)
+
+        tk.Button(
+            btn_bar, text="Close", command=win.destroy,
+            bg="#1e293b", fg="#cbd5e1", font=("Segoe UI", 9), relief="flat", padx=12, pady=4, cursor="hand2"
+        ).pack(side=tk.RIGHT)
+
+    def _open_virustotal_inspection(self):
+        app = self._get_selected_app()
+        if not app:
+            messagebox.showinfo("VirusTotal", "Please select an application first.", parent=self)
+            return
+        sec = app.get("security", {})
+        vt_url = sec.get("vt_url")
+        if vt_url:
+            webbrowser.open(vt_url)
+        else:
+            webbrowser.open(f"https://www.virustotal.com/gui/search/{urllib.parse.quote(app.get('name', ''))}")
+
+    def _open_app_file_location(self):
+        app = self._get_selected_app()
+        if not app:
+            messagebox.showinfo("File Location", "Please select an application first.", parent=self)
+            return
+        sec = app.get("security", {})
+        exe_path = sec.get("exe_path")
+        if exe_path and os.path.exists(exe_path):
+            try:
+                subprocess.Popen(f'explorer.exe /select,"{exe_path}"')
+            except Exception as e:
+                self.log_ui(f"[ERROR] Could not open file location: {e}")
+        else:
+            messagebox.showinfo("File Location", f"Executable location could not be resolved on disk for:\n{app.get('name')}", parent=self)
+
     def _set_app_state(self, pkg_id: str, current_ver=None, status="Installing...", tag="updating"):
         for app in self.updates_list:
             if app["id"] == pkg_id:
@@ -2591,7 +2803,10 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             if len(vals) > 1 and vals[1] == pkg_id:
                 if current_ver:
                     vals[2] = current_ver
-                vals[4] = status
+                if len(vals) >= 6:
+                    vals[5] = status
+                elif len(vals) >= 5:
+                    vals[4] = status
                 self.tree.item(item, values=vals, tags=(tag,))
                 self.tree.see(item)
                 break
@@ -2631,6 +2846,24 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             self.after(0, lambda v=pct: self.progress_var.set(v))
             self.after(0, lambda n=name, i=idx, t=total: self.lbl_status.config(text=f"⚡ Updating [{i}/{t}]: {n} ({old_ver} → {avail_ver})..."))
             self.after(0, lambda p=pkg_id: self._set_app_state(p, status="Installing...", tag="updating"))
+
+            # PRE-UPDATE SECURITY & TRUST GATE
+            sec = app.get("security", {})
+            tier = sec.get("tier", "TRUSTED")
+            reasons = sec.get("reasons", [])
+
+            if tier == "HIGH_RISK":
+                failed_count += 1
+                r_text = "; ".join(reasons) if reasons else "Failed security audit / PUP heuristics"
+                self.log_ui(f"⛔ [SECURITY GATE] BLOCKED: {name} ({r_text})")
+                self.after(0, lambda p=pkg_id: self._set_app_state(p, status="⛔ Blocked (Risk)", tag="failed"))
+                continue
+
+            if tier == "CAUTION" and not self.include_unverified_var.get():
+                r_text = "; ".join(reasons) if reasons else "Unsigned or unverified executable"
+                self.log_ui(f"⚠️ [SECURITY GATE] SKIPPED: {name} ({r_text}) — Enable 'Allow Unverified' to update.")
+                self.after(0, lambda p=pkg_id: self._set_app_state(p, status="⚠ Skipped (Unverified)", tag="reboot"))
+                continue
 
             self.log_ui("-" * 54)
             self.log_ui(f"[{idx}/{total}] Upgrading: {name} ({pkg_id}) | {old_ver} -> {avail_ver}")
@@ -2829,9 +3062,10 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             for wu in self.windows_updates or ["None pending"]:
                 lines.append(f"  • {wu}")
 
-            lines.extend(["", f"[4. SOFTWARE UPDATES STATUS ({len(self.updates_list)})]"])
+            lines.extend(["", f"[4. SOFTWARE UPDATES STATUS & TRUST GATE ({len(self.updates_list)})]"])
             for u in self.updates_list:
-                lines.append(f"  • {u['name']} ({u['id']}): {u['current']} -> {u['available']} [{u['status']}]")
+                sec_tier = u.get("security", {}).get("tier", "TRUSTED")
+                lines.append(f"  • {u['name']} ({u['id']}): {u['current']} -> {u['available']} [Status: {u['status']} | Trust: {u.get('trust', '🟢 Trusted')} ({sec_tier})]")
 
             if hasattr(self, "ai_inventory") and self.ai_inventory:
                 lines.extend(["", f"[5. DEEP AI SOFTWARE & LOCAL INFERENCE SUITES ({len(self.ai_inventory)})]"])
