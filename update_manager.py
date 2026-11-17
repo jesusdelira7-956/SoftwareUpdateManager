@@ -1750,9 +1750,9 @@ class UpdateManagerApp(tk.Tk):
         )
         help_text.pack(fill=tk.BOTH, expand=True)
 
-        guide_content = """📘 WELCOME TO SOFTWARE UPDATE MANAGER & AUDITOR (v2.1)
+        guide_content = """📘 WELCOME TO SOFTWARE UPDATE MANAGER & AUDITOR (v2.3)
 ================================================================================
-This utility is designed to work out-of-the-box on ANY Windows 10 or Windows 11 computer. It automatically audits your computer's hardware specifications, scans all installed software, finds available updates, installs them sequentially, and verifies every update.
+This utility is designed to work out-of-the-box on ANY Windows 10 or Windows 11 computer. It automatically audits your computer's hardware specifications, scans all installed software, checks Authenticode digital signatures & PUP blocklists, finds available updates, installs them sequentially, and verifies every update.
 
 --------------------------------------------------------------------------------
 1. FAST ONE-LINER INSTALLATION (OPTION A)
@@ -1770,7 +1770,23 @@ When you launch the app (or click "🔄 Full System & Update Scan"):
   • STAGE 2 (Deep Software & Update Scan): Next, it scans the Windows Registry for every installed application and checks Microsoft's Windows Package Manager (Winget) for newer versions, plus checks for pending Windows OS updates.
 
 --------------------------------------------------------------------------------
-3. SPECIALIZED AI & DEV SUITES, BROWSERS & MICROSOFT STORE
+3. PRE-UPDATE SECURITY & TRUST GATE (v2.3)
+--------------------------------------------------------------------------------
+Before updating any package, the application executes a zero-dependency Trust & Security Gate:
+  • Authenticode Verification: Checks the existing executable's digital signature using Windows APIs to confirm publisher identity and prevent tampered binaries.
+  • Suspicious Path Heuristics: Flags software located in dangerous or temporary directories (%TEMP%, C:\\Users\\Public, \\ProgramData\\, %AppData%\\Roaming).
+  • PUP & Adware Blocklist: Automatically matches against pup_blocklist.json for known spyware, bundleware, and unwanted driver utilities.
+  • Hidden SystemComponent Audit: Audits stealth registry entries used by spyware to hide from Add/Remove Programs.
+  • Cloud Threat Intelligence (Optional): Free SHA-256 hash lookup via Abuse.ch MalwareBazaar & VirusTotal.
+  • Trust Tiers:
+      🟢 Trusted     : Signed by verified publisher, standard path, recognized package ID.
+      🟡 Unverified  : Unsigned binary or non-standard directory (skipped in batch unless "Allow Unverified" is checked).
+      🔴 High Risk   : Flagged PUP, hidden registry anomaly, or known malicious hash (permanently blocked from auto-update).
+  • Right-Click Context Menu:
+      Right-click any application in the table to view security details, inspect its SHA-256 on VirusTotal, or open its file location in File Explorer.
+
+--------------------------------------------------------------------------------
+4. SPECIALIZED AI & DEV SUITES, BROWSERS & MICROSOFT STORE
 --------------------------------------------------------------------------------
   • 🤖 AI & Dev Tools:
     Click the "🤖 AI & Dev Tools" button in the filter toolbar to instantly select and prioritize updates for AI assistants and developer suites (Antigravity IDE, Cursor, VS Code, Android Studio, GitHub Copilot, Ollama, LM Studio, Pinokio, Docker Desktop, etc.).
@@ -1780,7 +1796,7 @@ When you launch the app (or click "🔄 Full System & Update Scan"):
     Click "🛍️ Store Apps" or use the top banner to trigger the Windows Store background update service (InstallService) and launch the Microsoft Store directly to "Updates & downloads" where queued updates (Notepad, Paint, Xbox, Snipping Tool, HP) can be monitored and updated.
 
 --------------------------------------------------------------------------------
-4. HOW TO UPDATE YOUR SOFTWARE
+5. HOW TO UPDATE YOUR SOFTWARE
 --------------------------------------------------------------------------------
   • Update Everything Sequentially:
     Click "⚡ Push All Updates (One-by-One)". The app downloads and installs updates strictly one at a time so installers never collide or lock the same system files.
@@ -1792,7 +1808,7 @@ When you launch the app (or click "🔄 Full System & Update Scan"):
     Click "⏹ Stop Batch" at any time during updates; the app will safely finish the current installer and stop before starting the next one.
 
 --------------------------------------------------------------------------------
-5. MEANING OF UPDATE STATUS BADGES
+6. MEANING OF UPDATE STATUS BADGES
 --------------------------------------------------------------------------------
   • Pending Update (Blue)     : A newer version is available and ready to install.
   • Installing... (Amber)     : Winget is currently downloading and running the installer.
@@ -1802,7 +1818,7 @@ When you launch the app (or click "🔄 Full System & Update Scan"):
   • ✗ Failed                  : The installer returned an error code. Check the live log for details.
 
 --------------------------------------------------------------------------------
-6. WHY ADMINISTRATOR MODE IS ENABLED AT STARTUP
+7. WHY ADMINISTRATOR MODE IS ENABLED AT STARTUP
 --------------------------------------------------------------------------------
 Many system applications (such as Visual C++ Redistributables, .NET Runtimes, VLC, 7-Zip, and Hardware Drivers) require Administrator rights to update files in "C:\\Program Files".
 By requesting Administrator elevation once when the app starts (shown by the green "🛡️ Administrator" badge in the top-right), all updates run smoothly without interrupting you with repeated UAC prompts.
