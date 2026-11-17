@@ -26,13 +26,14 @@ import platform
 import threading
 import subprocess
 import webbrowser
+import urllib.request
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, filedialog
 from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "Software Update Manager"
-APP_VERSION = "2.1.1"
+APP_VERSION = "2.2.0"
 APP_DIR = Path(__file__).parent.resolve()
 LOG_FILE = APP_DIR / "update_history.log"
 DONATION_URL = "https://buymeacoffee.com/JesseInTheLab"
@@ -79,6 +80,323 @@ AI_DEV_PACKAGES = {
     "Python.Python.3.11": "Python 3.11",
     "Nodejs.Nodejs": "Node.js",
 }
+
+AI_CATALOG = {
+    "claude": {
+        "name": "Claude Desktop",
+        "vendor": "Anthropic",
+        "winget_id": "Anthropic.Claude",
+        "type": "Store / In-App",
+        "site": "https://claude.ai/download",
+        "default_status": "⚡ In-App Auto-Updater (Relaunch to update)",
+    },
+    "chatgpt": {
+        "name": "ChatGPT Desktop",
+        "vendor": "OpenAI",
+        "winget_id": "OpenAI.ChatGPT",
+        "type": "Store / MSIX",
+        "site": "https://chatgpt.com/",
+        "default_status": "🛍️ Managed via Microsoft Store",
+    },
+    "codex": {
+        "name": "OpenAI Codex",
+        "vendor": "OpenAI",
+        "winget_id": "OpenAI.Codex",
+        "type": "Store / MSIX",
+        "site": "https://openai.com",
+        "default_status": "🛍️ Managed via Microsoft Store",
+    },
+    "cursor": {
+        "name": "Cursor AI",
+        "vendor": "Anysphere",
+        "winget_id": "Anysphere.Cursor",
+        "type": "Win32 / Electron",
+        "site": "https://cursor.com",
+        "default_status": "✓ Up to Date",
+    },
+    "windsurf": {
+        "name": "Windsurf AI",
+        "vendor": "Codeium",
+        "winget_id": "Codeium.Windsurf",
+        "type": "Win32 / Electron",
+        "site": "https://codeium.com/windsurf",
+        "default_status": "✓ Up to Date",
+    },
+    "ollama": {
+        "name": "Ollama LLM Engine",
+        "vendor": "Ollama",
+        "winget_id": "Ollama.Ollama",
+        "type": "Win32 Service / CLI",
+        "site": "https://ollama.com",
+        "default_status": "✓ Up to Date",
+    },
+    "lm studio": {
+        "name": "LM Studio",
+        "vendor": "ElementLabs",
+        "winget_id": "ElementLabs.LMStudio",
+        "type": "Win32 / Electron",
+        "site": "https://lmstudio.ai",
+        "default_status": "✓ Up to Date",
+    },
+    "lmstudio": {
+        "name": "LM Studio",
+        "vendor": "ElementLabs",
+        "winget_id": "ElementLabs.LMStudio",
+        "type": "Win32 / Electron",
+        "site": "https://lmstudio.ai",
+        "default_status": "✓ Up to Date",
+    },
+    "anythingllm": {
+        "name": "AnythingLLM",
+        "vendor": "Mintplex Labs",
+        "winget_id": "",
+        "type": "Win32 / Electron",
+        "site": "https://anythingllm.com",
+        "default_status": "Manual / In-App Check",
+    },
+    "jan": {
+        "name": "Jan AI",
+        "vendor": "Jan",
+        "winget_id": "Jan.Jan",
+        "type": "Win32 / Electron",
+        "site": "https://jan.ai",
+        "default_status": "✓ Up to Date",
+    },
+    "pinokio": {
+        "name": "Pinokio AI Browser",
+        "vendor": "Pinokio",
+        "winget_id": "pinokiocomputer.pinokio",
+        "type": "Win32",
+        "site": "https://pinokio.computer",
+        "default_status": "✓ Up to Date",
+    },
+    "copilot": {
+        "name": "GitHub Copilot",
+        "vendor": "GitHub",
+        "winget_id": "GitHub.CopilotApp",
+        "type": "Win32",
+        "site": "https://github.com/features/copilot",
+        "default_status": "✓ Up to Date",
+    },
+    "microsoft copilot": {
+        "name": "Microsoft Copilot",
+        "vendor": "Microsoft",
+        "winget_id": "",
+        "type": "Windows In-Box",
+        "site": "https://copilot.microsoft.com",
+        "default_status": "✓ Windows Integrated",
+    },
+    "antigravity": {
+        "name": "Antigravity IDE",
+        "vendor": "Google DeepMind",
+        "winget_id": "",
+        "type": "Developer IDE",
+        "site": "https://deepmind.google",
+        "default_status": "✓ Managed Workspace",
+    },
+    "open-webui": {
+        "name": "Open WebUI",
+        "vendor": "Open WebUI",
+        "winget_id": "",
+        "type": "Web UI / Python",
+        "site": "https://openwebui.com",
+        "default_status": "✓ Local Sovereign Stack",
+    },
+    "comfyui": {
+        "name": "ComfyUI",
+        "vendor": "ComfyUI",
+        "winget_id": "",
+        "type": "Portable / Python",
+        "site": "https://comfy.org",
+        "default_status": "Git / Python Portable",
+    },
+    "google cloud sdk": {
+        "name": "Google Cloud SDK",
+        "vendor": "Google",
+        "winget_id": "Google.CloudSDK",
+        "type": "Win32 / CLI",
+        "site": "https://cloud.google.com/sdk",
+        "default_status": "✓ Up to Date (Reconciled)",
+    },
+    "localais": {
+        "name": "LocalAIs Suite",
+        "vendor": "LocalAIs.com",
+        "winget_id": "",
+        "type": "Store / MSIX",
+        "site": "",
+        "default_status": "🛍️ Managed via Microsoft Store",
+    },
+}
+
+
+def scan_deep_ai_inventory(upgradable_map: dict = None) -> list[dict]:
+    """
+    Performs a deep multi-tier audit across:
+    1. Windows Store / MSIX containers (Appx packages)
+    2. Windows Registry hives (HKCU, HKLM, WOW6432Node)
+    3. System PATH CLI binaries and developer runtimes
+    Returns an enriched list of all installed AI applications, versions, and update mechanisms.
+    """
+    if upgradable_map is None:
+        upgradable_map = {}
+    inventory = {}
+
+    # 1. Windows Store / MSIX containers via PowerShell Get-AppxPackage
+    try:
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        ps_cmd = (
+            "Get-AppxPackage | Select-Object Name, Version, PackageFullName, "
+            "PackageFamilyName, InstallLocation | ConvertTo-Json -Compress"
+        )
+        proc = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
+            capture_output=True, text=True, errors="replace", timeout=15, startupinfo=startupinfo
+        )
+        if proc.stdout.strip():
+            pkgs = json.loads(proc.stdout)
+            if isinstance(pkgs, dict):
+                pkgs = [pkgs]
+            for p in pkgs:
+                p_name = p.get("Name", "")
+                p_fam = p.get("PackageFamilyName", "")
+                for key, meta in AI_CATALOG.items():
+                    if key in p_name.lower():
+                        norm_key = meta["name"]
+                        app_id = f"shell:AppsFolder\\{p_fam}!App"
+                        if "claude" in p_name.lower():
+                            app_id = "shell:AppsFolder\\Claude_pzs8sxrjxfjjc!Claude"
+                        elif "codex" in p_name.lower():
+                            app_id = "shell:AppsFolder\\OpenAI.Codex_2p2nqsd0c76g0!App"
+                        elif "chatgpt" in p_name.lower():
+                            app_id = "shell:AppsFolder\\OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0!ChatGPT"
+
+                        inventory[norm_key] = {
+                            "name": meta["name"],
+                            "vendor": meta["vendor"],
+                            "version": p.get("Version", "Store Managed"),
+                            "source": "Windows Store (MSIX)",
+                            "winget_id": meta["winget_id"],
+                            "location": p.get("InstallLocation", ""),
+                            "app_id": app_id,
+                            "site": meta["site"],
+                            "update_status": meta["default_status"],
+                            "action_label": "Launch App" if "In-App" in meta["default_status"] else "Open Store",
+                            "action_type": "app" if "In-App" in meta["default_status"] else "store",
+                        }
+                        break
+    except Exception:
+        pass
+
+    # 2. Windows Registry Uninstall Hives (Win32 AI software)
+    hives = [
+        (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+    ]
+    for root, subkey in hives:
+        try:
+            with winreg.OpenKey(root, subkey, 0, winreg.KEY_READ) as parent:
+                for i in range(winreg.QueryInfoKey(parent)[0]):
+                    try:
+                        kname = winreg.EnumKey(parent, i)
+                        with winreg.OpenKey(root, f"{subkey}\\{kname}", 0, winreg.KEY_READ) as k:
+                            try:
+                                dname, _ = winreg.QueryValueEx(k, "DisplayName")
+                            except OSError:
+                                dname = ""
+                            for key, meta in AI_CATALOG.items():
+                                if key in dname.lower():
+                                    norm_key = meta["name"]
+                                    if norm_key not in inventory or inventory[norm_key]["version"] in ("Store Managed", "Unknown"):
+                                        try:
+                                            dver, _ = winreg.QueryValueEx(k, "DisplayVersion")
+                                        except OSError:
+                                            dver = "Installed"
+                                        try:
+                                            iloc, _ = winreg.QueryValueEx(k, "InstallLocation")
+                                        except OSError:
+                                            iloc = ""
+                                        try:
+                                            dicon, _ = winreg.QueryValueEx(k, "DisplayIcon")
+                                            app_exe = dicon.split(",")[0].strip('"')
+                                        except OSError:
+                                            app_exe = ""
+
+                                        status = meta["default_status"]
+                                        act_label = "Open App"
+                                        act_type = "app"
+
+                                        wid = meta["winget_id"].lower()
+                                        if wid and wid in upgradable_map:
+                                            upg = upgradable_map[wid]
+                                            status = f"⬆️ Update Available ({upg.get('available', 'Newer')})"
+                                            act_label = "Update via WinGet"
+                                            act_type = "winget"
+
+                                        inventory[norm_key] = {
+                                            "name": meta["name"],
+                                            "vendor": meta["vendor"],
+                                            "version": dver,
+                                            "source": "Windows Registry (Win32)",
+                                            "winget_id": meta["winget_id"],
+                                            "location": iloc or app_exe,
+                                            "app_id": app_exe or iloc,
+                                            "site": meta["site"],
+                                            "update_status": status,
+                                            "action_label": act_label,
+                                            "action_type": act_type,
+                                        }
+                                    break
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+
+    # 3. CLI Tools on PATH
+    cli_map = {
+        "ollama": "Ollama LLM Engine",
+        "cursor": "Cursor AI",
+        "gcloud": "Google Cloud SDK",
+    }
+    for cmd, norm_key in cli_map.items():
+        if norm_key not in inventory:
+            p = shutil.which(cmd)
+            if p:
+                meta = AI_CATALOG.get(cmd, {})
+                inventory[norm_key] = {
+                    "name": norm_key,
+                    "vendor": meta.get("vendor", "Unknown"),
+                    "version": "Detected on PATH",
+                    "source": "System PATH (CLI)",
+                    "winget_id": meta.get("winget_id", ""),
+                    "location": p,
+                    "app_id": p,
+                    "site": meta.get("site", ""),
+                    "update_status": meta.get("default_status", "✓ Current"),
+                    "action_label": "Open Terminal",
+                    "action_type": "cli",
+                }
+
+    # 4. Check specific web / GitHub release for standalone tools (e.g. AnythingLLM)
+    if "AnythingLLM" in inventory:
+        try:
+            req = urllib.request.Request(
+                "https://api.github.com/repos/Mintplex-Labs/anything-llm/releases/latest",
+                headers={"User-Agent": "Mozilla/5.0"}
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                gh_data = json.loads(resp.read().decode())
+                latest_tag = gh_data.get("tag_name", "").lstrip("v")
+                cur_v = inventory["AnythingLLM"]["version"]
+                if latest_tag and cur_v != latest_tag:
+                    inventory["AnythingLLM"]["update_status"] = f"⬆️ v{latest_tag} Available (GitHub)"
+                    inventory["AnythingLLM"]["action_label"] = "Download v" + latest_tag
+                    inventory["AnythingLLM"]["action_type"] = "web"
+        except Exception:
+            pass
+
+    return sorted(list(inventory.values()), key=lambda x: x["name"])
 
 # Known winget (APPINSTALLER_CLI_ERROR_*) HRESULTs & Windows installer exit codes
 EXIT_CODE_MAP = {
@@ -1130,7 +1448,7 @@ class UpdateManagerApp(tk.Tk):
         ).pack(side=tk.LEFT, padx=2)
 
         tk.Button(
-            search_frame, text="🤖 AI & Dev Tools", command=self.filter_ai_dev_tools,
+            search_frame, text="🤖 AI & Dev Tools", command=self.open_ai_dev_hub,
             bg="#4338ca", fg="#ffffff", relief="flat", font=("Segoe UI", 8, "bold"), padx=7, pady=2, cursor="hand2"
         ).pack(side=tk.LEFT, padx=3)
 
@@ -1205,6 +1523,11 @@ class UpdateManagerApp(tk.Tk):
             btn_row, text="🛍️ Store Apps", style="Secondary.TButton", command=self.trigger_store_updates
         )
         self.btn_store.pack(side=tk.LEFT, padx=6)
+
+        self.btn_ai_audit = ttk.Button(
+            btn_row, text="🤖 AI Suites", style="Secondary.TButton", command=self.open_ai_dev_hub
+        )
+        self.btn_ai_audit.pack(side=tk.LEFT, padx=6)
 
         # Silent Mode Checkbox
         chk_silent = tk.Checkbutton(
@@ -1535,7 +1858,7 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             self.log_ui(f"[ERROR] Could not open link: {e}")
 
     def filter_ai_dev_tools(self):
-        """Highlight and select all pending updates for AI & Developer Environment packages."""
+        """Highlight pending AI updates in main table and open Deep AI Suite Auditor Hub."""
         matched = []
         for item in self.tree.get_children():
             vals = self.tree.item(item, "values")
@@ -1548,9 +1871,289 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             self.tree.selection_set(matched)
             self.lbl_status.config(text=f"🤖 Selected {len(matched)} AI & Developer Suite update(s).")
             self.log_ui(f"[FILTER] Highlighted {len(matched)} AI / Developer tool(s) for update.")
-        else:
-            self.lbl_status.config(text="🤖 No pending updates for AI/Dev tools at this time.")
-            messagebox.showinfo("AI & Dev Suites", "No pending updates found for AI assistants or Developer tools.\nAll monitored dev environments are current!")
+        self.open_ai_dev_hub()
+
+    def open_ai_dev_hub(self):
+        """Open the Deep AI & Inference Suite Auditor window."""
+        # Ensure we have fresh scan data
+        if not hasattr(self, "ai_inventory") or not self.ai_inventory:
+            upg_map = {}
+            if hasattr(self, "upgradable_apps"):
+                upg_map = {a["id"].lower(): a for a in self.upgradable_apps}
+            self.ai_inventory = scan_deep_ai_inventory(upg_map)
+
+        win = tk.Toplevel(self)
+        win.title("🤖 Deep AI & Inference Suite Auditor - Software Update Manager")
+        win.geometry("980x620")
+        win.minsize(840, 500)
+        win.configure(bg="#0b1329")
+        win.transient(self)
+
+        # Center over parent
+        try:
+            x = self.winfo_rootx() + (self.winfo_width() // 2) - 490
+            y = self.winfo_rooty() + (self.winfo_height() // 2) - 310
+            win.geometry(f"+{max(10, x)}+{max(10, y)}")
+        except Exception:
+            pass
+
+        # Top Banner
+        header_frame = tk.Frame(win, bg="#131c38", padx=16, pady=12, highlightbackground="#3b82f6", highlightthickness=1)
+        header_frame.pack(fill=tk.X, padx=12, pady=(12, 8))
+
+        lbl_title = tk.Label(
+            header_frame,
+            text="🤖 Deep AI & Local Inference Suite Auditor",
+            bg="#131c38", fg="#60a5fa", font=("Segoe UI", 13, "bold"), anchor="w"
+        )
+        lbl_title.pack(anchor="w")
+
+        lbl_desc = tk.Label(
+            header_frame,
+            text="Comprehensive multi-tier audit across Windows Registry hives, Windows Store / MSIX containers, and system PATH CLI binaries.",
+            bg="#131c38", fg="#94a3b8", font=("Segoe UI", 9), anchor="w"
+        )
+        lbl_desc.pack(anchor="w", pady=(2, 0))
+
+        # Stats bar
+        stats_frame = tk.Frame(win, bg="#0b1329", padx=12)
+        stats_frame.pack(fill=tk.X, pady=(0, 6))
+
+        total_cnt = len(self.ai_inventory)
+        up_to_date_cnt = sum(1 for a in self.ai_inventory if "✓" in a.get("update_status", ""))
+        action_cnt = total_cnt - up_to_date_cnt
+
+        tk.Label(
+            stats_frame,
+            text=f"Total AI Suites Detected: {total_cnt}   |   ✓ Up to Date: {up_to_date_cnt}   |   ⚡ In-App / Store / Actions: {action_cnt}",
+            bg="#0b1329", fg="#38bdf8", font=("Segoe UI", 9, "bold")
+        ).pack(side=tk.LEFT)
+
+        # Treeview Table
+        tree_frame = ttk.Frame(win, style="Card.TFrame", padding=1)
+        tree_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+
+        cols = ("name", "vendor", "version", "source", "status")
+        ai_tree = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse")
+        ai_tree.heading("name", text="AI Software / Suite", anchor="w")
+        ai_tree.heading("vendor", text="Developer / Vendor", anchor="w")
+        ai_tree.heading("version", text="Installed Version", anchor="center")
+        ai_tree.heading("source", text="Installation Source", anchor="w")
+        ai_tree.heading("status", text="Update Status / Delivery Channel", anchor="w")
+
+        ai_tree.column("name", width=180, minwidth=130, anchor="w")
+        ai_tree.column("vendor", width=130, minwidth=100, anchor="w")
+        ai_tree.column("version", width=120, minwidth=90, anchor="center")
+        ai_tree.column("source", width=170, minwidth=130, anchor="w")
+        ai_tree.column("status", width=290, minwidth=220, anchor="w")
+
+        sb = ttk.Scrollbar(tree_frame, orient="vertical", command=ai_tree.yview)
+        ai_tree.configure(yscrollcommand=sb.set)
+        ai_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Style tags
+        ai_tree.tag_configure("ok", foreground="#34d399")
+        ai_tree.tag_configure("relaunch", foreground="#38bdf8")
+        ai_tree.tag_configure("update", foreground="#fbbf24")
+        ai_tree.tag_configure("store", foreground="#c084fc")
+
+        def _populate_tree():
+            ai_tree.delete(*ai_tree.get_children())
+            for idx, item in enumerate(self.ai_inventory):
+                st = item.get("update_status", "")
+                tag = "ok"
+                if "Relaunch" in st or "In-App" in st:
+                    tag = "relaunch"
+                elif "Update Available" in st or "Available" in st:
+                    tag = "update"
+                elif "Store" in st:
+                    tag = "store"
+
+                ai_tree.insert(
+                    "", tk.END, iid=str(idx),
+                    values=(
+                        item.get("name", ""),
+                        item.get("vendor", ""),
+                        item.get("version", ""),
+                        item.get("source", ""),
+                        item.get("update_status", ""),
+                    ),
+                    tags=(tag,)
+                )
+
+        _populate_tree()
+
+        # Action handlers
+        def _get_selected():
+            sel = ai_tree.selection()
+            if not sel:
+                return None
+            try:
+                idx = int(sel[0])
+                return self.ai_inventory[idx]
+            except Exception:
+                return None
+
+        def _launch_selected():
+            item = _get_selected()
+            if not item:
+                messagebox.showinfo("Select Item", "Please click on an AI application in the list first.", parent=win)
+                return
+            app_id = item.get("app_id", "")
+            loc = item.get("location", "")
+            name = item.get("name", "")
+
+            # 1. Store app via shell:AppsFolder
+            if app_id.startswith("shell:AppsFolder"):
+                try:
+                    subprocess.Popen(f'explorer.exe "{app_id}"', shell=True)
+                    self.log_ui(f"[AI LAUNCH] Launched Store app: {name} ({app_id})")
+                    return
+                except Exception as e:
+                    self.log_ui(f"[ERROR] Could not launch {name}: {e}")
+
+            # 2. Local executable
+            for cand in [app_id, loc]:
+                if cand and os.path.exists(cand):
+                    try:
+                        os.startfile(cand)
+                        self.log_ui(f"[AI LAUNCH] Opened {name}: {cand}")
+                        return
+                    except Exception as e:
+                        self.log_ui(f"[ERROR] Launch failed for {name}: {e}")
+
+            # 3. CLI tool
+            base_cmd = name.lower().split()[0]
+            p = shutil.which(base_cmd)
+            if p:
+                try:
+                    subprocess.Popen(f'start cmd /k "{p}" --help', shell=True)
+                    return
+                except Exception:
+                    pass
+
+            # Fallback to website
+            if item.get("site"):
+                webbrowser.open(item["site"])
+
+        def _open_store():
+            self.open_microsoft_store()
+
+        def _open_download():
+            item = _get_selected()
+            if item and item.get("site"):
+                webbrowser.open(item["site"])
+            else:
+                webbrowser.open("https://github.com/Mintplex-Labs/anything-llm/releases/latest")
+
+        def _rescan():
+            upg_map = {}
+            if hasattr(self, "upgradable_apps"):
+                upg_map = {a["id"].lower(): a for a in self.upgradable_apps}
+            self.ai_inventory = scan_deep_ai_inventory(upg_map)
+            _populate_tree()
+            self.log_ui(f"[AI AUDIT] Re-scanned system: {len(self.ai_inventory)} AI software suites audited.")
+
+        def _export():
+            self.export_ai_audit_report()
+
+        ai_tree.bind("<Double-1>", lambda e: _launch_selected())
+
+        # Bottom Button Bar
+        btn_bar = tk.Frame(win, bg="#0b1329", padx=12, pady=10)
+        btn_bar.pack(fill=tk.X)
+
+        tk.Button(
+            btn_bar, text="🚀 Launch / Relaunch App", command=_launch_selected,
+            bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        tk.Button(
+            btn_bar, text="🛍️ Open Store Updates", command=_open_store,
+            bg="#4f46e5", fg="#ffffff", activebackground="#4338ca", activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=6)
+
+        tk.Button(
+            btn_bar, text="🌐 Website / Downloads", command=_open_download,
+            bg="#0284c7", fg="#ffffff", activebackground="#0369a1", activeforeground="#ffffff",
+            font=("Segoe UI", 9), relief="flat", padx=10, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=6)
+
+        tk.Button(
+            btn_bar, text="🔄 Refresh Scan", command=_rescan,
+            bg="#334155", fg="#f8fafc", activebackground="#475569", activeforeground="#ffffff",
+            font=("Segoe UI", 9), relief="flat", padx=10, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=6)
+
+        tk.Button(
+            btn_bar, text="📋 Export AI Report", command=_export,
+            bg="#0f766e", fg="#ffffff", activebackground="#115e59", activeforeground="#ffffff",
+            font=("Segoe UI", 9), relief="flat", padx=10, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=6)
+
+        tk.Button(
+            btn_bar, text="Close", command=win.destroy,
+            bg="#1e293b", fg="#cbd5e1", font=("Segoe UI", 9), relief="flat", padx=12, pady=5, cursor="hand2"
+        ).pack(side=tk.RIGHT)
+
+    def export_ai_audit_report(self):
+        """Export the Deep AI Software & LLM Engine Audit to a formatted text file."""
+        if not hasattr(self, "ai_inventory") or not self.ai_inventory:
+            upg_map = {}
+            if hasattr(self, "upgradable_apps"):
+                upg_map = {a["id"].lower(): a for a in self.upgradable_apps}
+            self.ai_inventory = scan_deep_ai_inventory(upg_map)
+
+        default_name = f"AI_Software_Audit_{self.specs.get('hostname', 'PC')}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt"
+        out_path = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            initialfile=default_name,
+            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
+            title="Export Deep AI Software Audit Report",
+        )
+        if not out_path:
+            return
+
+        lines = [
+            "=" * 74,
+            f"   DEEP AI SOFTWARE & LOCAL INFERENCE ENGINE AUDIT REPORT",
+            "=" * 74,
+            f"Timestamp    : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"Host Computer: {self.specs.get('hostname', 'PC')}",
+            f"OS Version   : {self.specs.get('os_name', 'Windows')} (Build {self.specs.get('os_build', 'N/A')})",
+            f"Total AI Apps: {len(self.ai_inventory)} detected across Registry, Store & PATH",
+            "=" * 74,
+            "",
+            f"{'AI SOFTWARE':<22} | {'VENDOR':<15} | {'VERSION':<15} | {'SOURCE':<24} | {'STATUS'}",
+            "-" * 105,
+        ]
+        for it in self.ai_inventory:
+            lines.append(
+                f"{it.get('name', ''):<22} | {it.get('vendor', ''):<15} | {it.get('version', ''):<15} | {it.get('source', ''):<24} | {it.get('update_status', '')}"
+            )
+        lines.append("-" * 105)
+        lines.append("\nDETAILED INSTALLATION PATHS & APP IDENTIFIERS:\n")
+        for it in self.ai_inventory:
+            lines.append(f"• {it.get('name')} ({it.get('vendor')})")
+            lines.append(f"  - Version       : {it.get('version')}")
+            lines.append(f"  - Source        : {it.get('source')}")
+            lines.append(f"  - Update Status : {it.get('update_status')}")
+            lines.append(f"  - Location/ID   : {it.get('app_id') or it.get('location') or 'Standard System'}")
+            if it.get("site"):
+                lines.append(f"  - Official Site : {it.get('site')}")
+            lines.append("")
+
+        try:
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+            self.log_ui(f"[EXPORT] AI Software Audit successfully exported to: {out_path}")
+            messagebox.showinfo("Export Successful", f"AI Software Audit exported successfully to:\n\n{out_path}")
+        except Exception as e:
+            self.log_ui(f"[EXPORT ERROR] Failed to save AI audit report: {e}")
+            messagebox.showerror("Export Failed", f"Could not write file: {e}")
 
     def trigger_browser_updates(self):
         """Invoke native background updater services for Chrome, Edge, Brave, and Firefox."""
@@ -1784,6 +2387,18 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             self.log_ui("  [✓] Microsoft Store InstallService background scan signaled.")
         except Exception:
             pass
+
+        # STAGE 2E: Deep AI Software & LLM Engine Audit
+        try:
+            self.log_ui("[STAGE 2] Performing Deep AI Software & LLM Engine Audit (Registry, Store & PATH)...")
+            upgradable_map = {app["id"].lower(): app for app in upgradable_apps}
+            ai_items = scan_deep_ai_inventory(upgradable_map)
+            self.ai_inventory = ai_items
+            self.log_ui(f"  • Deep scan identified {len(ai_items)} AI suite installations across system:")
+            for ai in ai_items:
+                self.log_ui(f"    - {ai['name']} ({ai['version']}) [{ai['source']}] → {ai['update_status']}")
+        except Exception as ae:
+            self.log_ui(f"  ⚠ AI suite audit note: {ae}")
 
         self.after(0, lambda: self.progress_var.set(100))
         self.after(80, lambda: self._on_scan_finished(upgradable_apps))
@@ -2218,7 +2833,12 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             for u in self.updates_list:
                 lines.append(f"  • {u['name']} ({u['id']}): {u['current']} -> {u['available']} [{u['status']}]")
 
-            lines.extend(["", f"[5. FULL INSTALLED SOFTWARE INVENTORY ({len(self.installed_apps)})]"])
+            if hasattr(self, "ai_inventory") and self.ai_inventory:
+                lines.extend(["", f"[5. DEEP AI SOFTWARE & LOCAL INFERENCE SUITES ({len(self.ai_inventory)})]"])
+                for ai in self.ai_inventory:
+                    lines.append(f"  • {ai['name']} ({ai['vendor']}) | Ver: {ai['version']} | {ai['source']} | Status: {ai['update_status']}")
+
+            lines.extend(["", f"[6. FULL INSTALLED SOFTWARE INVENTORY ({len(self.installed_apps)})]"])
             for app in self.installed_apps:
                 lines.append(f"  • {app['name']} | Ver: {app['version']} | {app['publisher']} ({app['scope']})")
 
