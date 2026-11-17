@@ -32,7 +32,7 @@ from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "Software Update Manager"
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.1.1"
 APP_DIR = Path(__file__).parent.resolve()
 LOG_FILE = APP_DIR / "update_history.log"
 DONATION_URL = "https://buymeacoffee.com/JesseInTheLab"
@@ -176,6 +176,100 @@ def create_windows_restore_point(description: str = "Before Software Update") ->
         return False, "Restore point creation timed out."
     except Exception as e:
         return False, str(e)
+
+
+# =====================================================================
+# DEVELOPER TOOL REGISTRY VERSION RECONCILIATION
+# =====================================================================
+def get_real_gcloud_version() -> str:
+    """Read the actual Google Cloud SDK CLI version from disk via 'gcloud version'."""
+    gcloud_path = shutil.which("gcloud") or shutil.which("gcloud.cmd")
+    if not gcloud_path:
+        cand = os.path.expandvars(r"%LOCALAPPDATA%\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd")
+        if os.path.exists(cand):
+            gcloud_path = cand
+    if not gcloud_path:
+        return ""
+    try:
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        res = subprocess.run(
+            [gcloud_path, "version"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=15,
+            startupinfo=startupinfo,
+        )
+        m = re.search(r"Google Cloud SDK\s+([0-9]+\.[0-9]+\.[0-9]+)", res.stdout)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return ""
+
+
+def sync_gcloud_sdk_version() -> tuple[bool, str]:
+    """
+    Detects if Google Cloud SDK CLI on disk is at a newer version than reported
+    in Windows Registry (which causes WinGet to endlessly flag it as outdated).
+    Reconciles the registry DisplayVersion with the actual CLI version.
+    """
+    real_ver = get_real_gcloud_version()
+    if not real_ver:
+        return False, "Google Cloud SDK CLI not found on disk"
+
+    hives = [
+        (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+    ]
+
+    updated = False
+    for root, subkey in hives:
+        try:
+            with winreg.OpenKey(root, subkey, 0, winreg.KEY_READ) as parent:
+                num_subkeys = winreg.QueryInfoKey(parent)[0]
+                for i in range(num_subkeys):
+                    try:
+                        kname = winreg.EnumKey(parent, i)
+                        full_sub = f"{subkey}\\{kname}"
+                        with winreg.OpenKey(root, full_sub, 0, winreg.KEY_READ) as k:
+                            try:
+                                dname, _ = winreg.QueryValueEx(k, "DisplayName")
+                            except OSError:
+                                dname = ""
+                            if "Google Cloud SDK" in dname or kname == "Google Cloud SDK":
+                                try:
+                                    cur_ver, _ = winreg.QueryValueEx(k, "DisplayVersion")
+                                except OSError:
+                                    cur_ver = ""
+                                if cur_ver != real_ver:
+                                    with winreg.OpenKey(root, full_sub, 0, winreg.KEY_SET_VALUE) as wk:
+                                        winreg.SetValueEx(wk, "DisplayVersion", 0, winreg.REG_SZ, real_ver)
+                                    updated = True
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+
+    if updated:
+        return True, f"Reconciled Google Cloud SDK registry to {real_ver} (was out of sync)"
+    return False, f"Google Cloud SDK registry already in sync ({real_ver})"
+
+
+def reconcile_developer_cli_tools() -> list[str]:
+    """
+    Scans for developer tools (like Google Cloud SDK) where the tool's internal updater
+    updates binaries on disk without updating the Windows Uninstall registry key,
+    causing WinGet to repeatedly report false-positive pending updates.
+    Reconciles the registry DisplayVersion with the actual on-disk CLI version.
+    """
+    messages = []
+    synced, msg = sync_gcloud_sdk_version()
+    if synced:
+        messages.append(msg)
+    return messages
 
 
 # =====================================================================
@@ -1588,6 +1682,14 @@ By requesting Administrator elevation once when the app starts (shown by the gre
         self.after(0, lambda: self.progress_var.set(35))
         self.after(0, lambda: self.lbl_status.config(text="🔍 Stage 2/2: Performing deep software inventory & checking for updates..."))
 
+        # Auto-reconcile developer CLI tools with registry desync before scanning
+        try:
+            reconciled = reconcile_developer_cli_tools()
+            for r_msg in reconciled:
+                self.log_ui(f"  • [AUTO-RECONCILE] {r_msg}")
+        except Exception as e:
+            self.log_ui(f"  ⚠ Reconcile check note: {e}")
+
         # STAGE 2A: Installed Software Registry Scan
         self.log_ui("[STAGE 2] Auditing installed software across Windows Registry hives...")
         installed = scan_installed_registry_apps()
@@ -1949,6 +2051,34 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                 decoded_badge, decoded_desc = decode_winget_exit_code(return_code)
                 self.log_ui(f"[EXIT CODE] {name} finished with code {return_code} ({decoded_desc})")
 
+                # Special handling for developer CLI tools with registry desync (e.g. Google Cloud SDK)
+                if pkg_id.lower() == "google.cloudsdk":
+                    u_c = return_code & 0xFFFFFFFF
+                    if return_code != 0 and u_c not in (3010, 1641):
+                        gcloud_path = shutil.which("gcloud") or shutil.which("gcloud.cmd")
+                        if not gcloud_path:
+                            cand = os.path.expandvars(r"%LOCALAPPDATA%\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd")
+                            if os.path.exists(cand):
+                                gcloud_path = cand
+                        if gcloud_path:
+                            self.log_ui("  > Running native 'gcloud components update --quiet'...")
+                            env = os.environ.copy()
+                            if sys.executable:
+                                env["CLOUDSDK_PYTHON"] = sys.executable
+                            try:
+                                g_res = subprocess.run(
+                                    [gcloud_path, "components", "update", "--quiet"],
+                                    capture_output=True, text=True, errors="replace", timeout=300,
+                                    env=env, startupinfo=startupinfo
+                                )
+                                if g_res.returncode == 0:
+                                    self.log_ui("  ✓ Native gcloud components update completed successfully.")
+                            except Exception as ge:
+                                self.log_ui(f"  ⚠ gcloud update error: {ge}")
+                    synced, sync_msg = sync_gcloud_sdk_version()
+                    if synced:
+                        self.log_ui(f"  ✓ [REGISTRY SYNC] {sync_msg}")
+
                 # Post-install verification
                 self.after(0, lambda p=pkg_id: self._set_app_state(p, status="Verifying...", tag="updating"))
                 verified, verified_ver = self._verify_installation(pkg_id, avail_ver)
@@ -1987,7 +2117,20 @@ By requesting Administrator elevation once when the app starts (shown by the gre
         self.after(100, lambda: self._on_batch_complete(total, success_count, reboot_count, failed_count))
 
     def _verify_installation(self, pkg_id: str, target_version: str):
-        """Confirm via winget list that the package is now at target_version."""
+        """Confirm via winget list or direct tool query that the package is now at target_version."""
+        if pkg_id.lower() == "google.cloudsdk":
+            real_ver = get_real_gcloud_version()
+            if real_ver:
+                sync_gcloud_sdk_version()
+                try:
+                    rv_parts = [int(x) for x in real_ver.split(".") if x.isdigit()]
+                    tv_parts = [int(x) for x in target_version.split(".") if x.isdigit()]
+                    if rv_parts >= tv_parts:
+                        return True, real_ver
+                except Exception:
+                    if real_ver == target_version:
+                        return True, real_ver
+
         try:
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
