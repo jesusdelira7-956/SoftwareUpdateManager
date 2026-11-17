@@ -122,6 +122,10 @@ Or double-click **`Run_Update_Manager.bat`**.
 
 ```text
 SoftwareUpdateManager/
+├── .github/workflows/
+│   └── validate-blocklist.yml   # GitHub Actions CI schema & safety validator
+├── scripts/
+│   └── validate_blocklist.py    # Zero-dependency blocklist schema & safety checker
 ├── update_manager.py            # Main application & GUI (v2.3 Master Edition)
 ├── security_auditor.py          # Pre-Update Security & Trust Gate (100% Python stdlib)
 ├── pup_blocklist.json           # Known PUP, adware, and high-risk path definitions
