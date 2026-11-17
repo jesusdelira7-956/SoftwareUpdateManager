@@ -1,11 +1,11 @@
-# 🛡️ Windows Software Update Manager & System Auditor (v2.1)
+# 🛡️ Windows Software Update Manager & System Auditor (v2.2)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-brightgreen.svg)](https://www.python.org/downloads/)
 [![Platform: Windows 10/11](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6.svg)](https://microsoft.com)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow.svg?logo=buy-me-a-coffee)](https://buymeacoffee.com/JesseInTheLab)
 
-A portable, high-performance desktop application for **Windows 10 & Windows 11** that audits hardware specifications, performs deep software inventory, updates software **sequentially one-by-one**, tracks AI/Dev suites, orchestrates browser updates, and cryptographically verifies each installation.
+A portable, high-performance desktop application for **Windows 10 & Windows 11** that audits hardware specifications, performs deep software inventory, updates software **sequentially one-by-one**, audits all AI suites across Registry/Store/PATH, reconciles developer CLI versions, orchestrates browser updates, and cryptographically verifies each installation.
 
 ---
 
@@ -51,7 +51,7 @@ irm https://raw.githubusercontent.com/jesusdelira7-956/SoftwareUpdateManager/mai
 ```
 
 > [!IMPORTANT]
-> **Make sure to copy the entire command** including `irm` at the beginning and `| iex` at the end! Pasty only the web URL will cause PowerShell to show a `CommandNotFoundException`.
+> **Make sure to copy the entire command** including `irm` at the beginning and `| iex` at the end! Pasting only the web URL will cause PowerShell to show a `CommandNotFoundException`.
 
 #### What the one-liner does automatically:
 - Checks Windows Package Manager (`winget`).
@@ -75,18 +75,27 @@ Or double-click **`Run_Update_Manager.bat`**.
 
 - **⚡ Automatic Administrator Elevation at Startup**:
   Requests UAC Administrator privileges on launch so system-wide installers (Visual C++ Runtimes, .NET, VLC, 7-Zip, Drivers) install smoothly without interrupting you with repeated permission prompts.
+- **🛡️ Windows System Restore Point Safety Net**:
+  Before pushing batch updates, prompts you to create a Windows System Restore Point ("Before Software Update") with a single click, providing an instant safety net.
 - **💻 Stage 1 — Universal Computer Spec & Health Scanner**:
   Dynamically detects the host PC's **Hostname, Manufacturer/Model, CPU, GPU (with VRAM), RAM (Total/Usable/Load %), Storage Drives (Used/Free GB), and Windows Build** using fast native Win32 & Registry APIs.
 - **🔍 Stage 2 — Deep Software Inventory & Update Scan**:
   Audits all installed applications across 64-bit, 32-bit, and User Registry hives, queries `winget` for available version upgrades, and checks Windows Update for pending OS patches.
+- **🤖 Deep AI Software & Local Inference Suite Auditor (v2.2 New!)**:
+  Performs a deep multi-tier audit across **Windows Store / MSIX containers**, **Windows Registry (Win32)**, and **System PATH CLI runtimes** for:
+  - **Claude Desktop** (Anthropic): Detects MSIX store packaging and embedded Electron delta-updater state; provides 1-click relaunch to apply pending in-app updates.
+  - **ChatGPT Desktop & OpenAI Codex**: Tracks Microsoft Store app versions.
+  - **Cursor AI & Windsurf**: Tracks AI IDE versions.
+  - **Ollama Engine & LM Studio**: Tracks local LLM inference engines and models.
+  - **AnythingLLM**: Checks real-time GitHub releases when packages are unindexed in WinGet.
+  - **GitHub Copilot & Microsoft Copilot**: Tracks assistant runtimes.
+  - **Dedicated "🤖 AI Suites" Hub**: View full AI inventory, color-coded update badges, 1-click launchers, store updater shortcuts, and export dedicated AI audit reports.
+- **🔄 Developer CLI Auto-Reconciliation (Google Cloud SDK Bug Fix)**:
+  Automatically reconciles version desync where developer tools (like `gcloud`) self-update on disk but fail to update the Windows Registry uninstaller string, permanently preventing false-positive phantom update loops.
+- **🛍️ Hybrid Microsoft Store Integration**:
+  Silently signals the Windows `InstallService` background update task, provides a non-intrusive status notification banner, and includes a 1-click launcher to open the Microsoft Store Library page.
 - **↕ Interactive Draggable Live Console Resizer**:
   Easily click and drag the splitter bar up or down to expand or shrink the live log drawer, or double-click to instantly toggle between compact and expanded views.
-- **🤖 Dedicated AI Assistants & Developer Suite Tracking**:
-  First-class inspection and 1-click **"🤖 AI & Dev Tools"** selection for:
-  - **IDEs & AI Editors**: Visual Studio Code, Cursor AI, Android Studio, Antigravity IDE
-  - **AI Assistants**: GitHub Copilot, ChatGPT Desktop, Claude Desktop, OpenAI Codex
-  - **Local LLM Inference Engines**: Ollama, LM Studio, Pinokio AI
-  - **Dev Infrastructure**: Docker Desktop, GitHub Desktop, Git SCM, Node.js, Python runtimes
 - **🌐 1-Click Native Browser Update Service Trigger**:
   Click **"🌐 Update Browsers"** to silently invoke background update services for Google Chrome (`GoogleUpdate.exe`), Microsoft Edge (`MicrosoftEdgeUpdate.exe`), Brave Browser, and Mozilla Firefox.
 - **🎯 Precise HRESULT Exit Code Decoding**:
@@ -104,7 +113,7 @@ Or double-click **`Run_Update_Manager.bat`**.
 
 ```text
 SoftwareUpdateManager/
-├── update_manager.py            # Main application & GUI (v2.1 Master Edition)
+├── update_manager.py            # Main application & GUI (v2.2 Master Edition)
 ├── Install.cmd                  # 1-click double-clickable installer (Option 2)
 ├── install.ps1                  # Universal remote & local one-liner installer (Option 3)
 ├── build_exe.py                 # Standalone single-file compiler (PyInstaller)
