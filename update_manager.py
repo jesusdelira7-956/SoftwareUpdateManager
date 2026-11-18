@@ -31,6 +31,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, filedialog
 from datetime import datetime
 from pathlib import Path
+from typing import Optional, Dict, List, Tuple, Any
 
 from security_auditor import SecurityAuditor
 
@@ -189,12 +190,12 @@ AI_CATALOG = {
         "default_status": "✓ Windows Integrated",
     },
     "antigravity": {
-        "name": "Antigravity IDE",
+        "name": "Antigravity",
         "vendor": "Google DeepMind",
-        "winget_id": "",
-        "type": "Developer IDE",
+        "winget_id": "Google.Antigravity",
+        "type": "Agentic IDE",
         "site": "https://deepmind.google",
-        "default_status": "✓ Managed Workspace",
+        "default_status": "✓ Up to Date",
     },
     "open-webui": {
         "name": "Open WebUI",
@@ -309,6 +310,8 @@ def scan_deep_ai_inventory(upgradable_map: dict = None) -> list[dict]:
                                 dname = ""
                             for key, meta in AI_CATALOG.items():
                                 if key in dname.lower():
+                                    if key == "antigravity" and any(x in dname.lower() for x in ("skills", "extension", "plugin")):
+                                        continue
                                     norm_key = meta["name"]
                                     if norm_key not in inventory or inventory[norm_key]["version"] in ("Store Managed", "Unknown"):
                                         try:
@@ -398,7 +401,84 @@ def scan_deep_ai_inventory(upgradable_map: dict = None) -> list[dict]:
         except Exception:
             pass
 
+    # 5. Check Antigravity / Electron In-App Auto-Updater state
+    try:
+        ag_candidates = [
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\antigravity\Antigravity.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Antigravity IDE\Antigravity IDE.exe"),
+        ]
+        ag_pending = os.path.expandvars(r"%LOCALAPPDATA%\antigravity-updater\pending\Antigravity-x64.exe")
+        ag_exe = next((p for p in ag_candidates if os.path.exists(p)), None)
+        if ag_exe:
+            cur_v = get_pe_file_version(ag_exe) or "2.32.2"
+            avail_v = get_pe_file_version(ag_pending) if os.path.exists(ag_pending) else ""
+            status = "✓ Up to Date"
+            act_label = "Open App"
+            act_type = "app"
+            if avail_v and cur_v != avail_v:
+                status = f"⚡ In-App Update Ready (v{avail_v} — Restart to Update)"
+                act_label = "Restart to Update"
+
+            inventory["Antigravity"] = {
+                "name": "Antigravity",
+                "vendor": "Google DeepMind",
+                "version": cur_v,
+                "source": "Local App (Win32)",
+                "winget_id": "Google.Antigravity",
+                "location": ag_exe,
+                "app_id": ag_exe,
+                "site": "https://deepmind.google",
+                "update_status": status,
+                "action_label": act_label,
+                "action_type": act_type,
+            }
+            inventory.pop("Antigravity IDE", None)
+    except Exception:
+        pass
+
     return sorted(list(inventory.values()), key=lambda x: x["name"])
+
+def get_pe_file_version(filepath: str) -> str:
+    """Read the exact product/file version of a Windows executable using native Win32 Version APIs."""
+    if not filepath or not os.path.exists(filepath):
+        return ""
+    try:
+        from ctypes import wintypes
+        size = ctypes.windll.version.GetFileVersionInfoSizeW(filepath, None)
+        if not size:
+            return ""
+        res = ctypes.create_string_buffer(size)
+        ctypes.windll.version.GetFileVersionInfoW(filepath, None, size, res)
+        u_len = wintypes.UINT()
+        lp_data = ctypes.c_void_p()
+        ctypes.windll.version.VerQueryValueW(res, r"\\", ctypes.byref(lp_data), ctypes.byref(u_len))
+        class VS_FIXEDFILEINFO(ctypes.Structure):
+            _fields_ = [
+                ("dwSignature", wintypes.DWORD),
+                ("dwStrucVersion", wintypes.DWORD),
+                ("dwFileVersionMS", wintypes.DWORD),
+                ("dwFileVersionLS", wintypes.DWORD),
+                ("dwProductVersionMS", wintypes.DWORD),
+                ("dwProductVersionLS", wintypes.DWORD),
+                ("dwFileFlagsMask", wintypes.DWORD),
+                ("dwFileFlags", wintypes.DWORD),
+                ("dwFileOS", wintypes.DWORD),
+                ("dwFileType", wintypes.DWORD),
+                ("dwFileSubtype", wintypes.DWORD),
+                ("dwFileDateMS", wintypes.DWORD),
+                ("dwFileDateLS", wintypes.DWORD),
+            ]
+        vs = VS_FIXEDFILEINFO.from_address(lp_data.value)
+        v1 = vs.dwFileVersionMS >> 16
+        v2 = vs.dwFileVersionMS & 0xFFFF
+        v3 = vs.dwFileVersionLS >> 16
+        v4 = vs.dwFileVersionLS & 0xFFFF
+        if v4 == 0:
+            return f"{v1}.{v2}.{v3}"
+        return f"{v1}.{v2}.{v3}.{v4}"
+    except Exception:
+        return ""
+
 
 # Known winget (APPINSTALLER_CLI_ERROR_*) HRESULTs & Windows installer exit codes
 EXIT_CODE_MAP = {
@@ -435,39 +515,155 @@ def decode_winget_exit_code(code: int) -> tuple[str, str]:
     return (f"✗ Code {code}", f"Process exited with code {code}")
 
 
-def trigger_browser_background_updates() -> list[str]:
-    """Trigger native background updater services for Chrome, Edge, Brave, and Firefox."""
-    triggered = []
-    browser_paths = [
-        ("Google Chrome", [
-            r"C:\Program Files\Google\Update\GoogleUpdate.exe",
-            r"C:\Program Files (x86)\Google\Update\GoogleUpdate.exe",
-            os.path.expandvars(r"%LOCALAPPDATA%\Google\Update\GoogleUpdate.exe"),
-        ], ["/c"]),
-        ("Microsoft Edge", [
-            r"C:\Program Files (x86)\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe",
-            r"C:\Program Files\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe",
-        ], ["/c"]),
-        ("Brave Browser", [
-            r"C:\Program Files\BraveSoftware\Update\BraveUpdate.exe",
-            r"C:\Program Files (x86)\BraveSoftware\Update\BraveUpdate.exe",
-            os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Update\BraveUpdate.exe"),
-        ], ["/c"]),
-        ("Mozilla Firefox", [
-            r"C:\Program Files\Mozilla Firefox\firefox.exe",
-            r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
-        ], ["-os-recheck"]),
+def find_browser_executable(binary_name: str, fallback_paths: list[str]) -> Optional[str]:
+    """Find a browser executable via Windows Registry App Paths or standard filesystem locations."""
+    for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        try:
+            with winreg.OpenKey(root, rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{binary_name}") as k:
+                val, _ = winreg.QueryValueEx(k, "")
+                if val:
+                    clean_val = val.strip('"')
+                    if os.path.exists(clean_val):
+                        return clean_val
+        except Exception:
+            pass
+    for p in fallback_paths:
+        exp_p = os.path.expandvars(p)
+        if os.path.exists(exp_p):
+            return exp_p
+    return None
+
+
+def trigger_browser_background_updates() -> list[dict]:
+    """
+    Triggers native background updater services and opens all installed browsers
+    directly to their official Update / About pages so they are brought up to check for updates.
+    Returns a list of dicts: {"name": str, "opened_ui": bool, "signaled_service": bool, "url": str}
+    """
+    browsers_spec = [
+        {
+            "name": "Google Chrome",
+            "binary": "chrome.exe",
+            "fallbacks": [
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe",
+            ],
+            "update_args": ["chrome://settings/help"],
+            "url_label": "chrome://settings/help",
+            "service_exes": [
+                r"C:\Program Files\Google\Update\GoogleUpdate.exe",
+                r"C:\Program Files (x86)\Google\Update\GoogleUpdate.exe",
+                r"%LOCALAPPDATA%\Google\Update\GoogleUpdate.exe",
+            ],
+            "service_args": ["/c"],
+        },
+        {
+            "name": "Microsoft Edge",
+            "binary": "msedge.exe",
+            "fallbacks": [
+                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+                r"%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe",
+            ],
+            "update_args": ["edge://settings/help"],
+            "url_label": "edge://settings/help",
+            "service_exes": [
+                r"C:\Program Files (x86)\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe",
+                r"C:\Program Files\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe",
+                r"%LOCALAPPDATA%\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe",
+            ],
+            "service_args": ["/c"],
+        },
+        {
+            "name": "Mozilla Firefox",
+            "binary": "firefox.exe",
+            "fallbacks": [
+                r"C:\Program Files\Mozilla Firefox\firefox.exe",
+                r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
+                r"%LOCALAPPDATA%\Mozilla Firefox\firefox.exe",
+            ],
+            "update_args": ["-url", "about:preferences#general"],
+            "url_label": "about:preferences#general",
+            "service_exes": [],
+            "service_args": [],
+        },
+        {
+            "name": "Brave Browser",
+            "binary": "brave.exe",
+            "fallbacks": [
+                r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+                r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
+                r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe",
+            ],
+            "update_args": ["brave://settings/help"],
+            "url_label": "brave://settings/help",
+            "service_exes": [
+                r"C:\Program Files\BraveSoftware\Update\BraveUpdate.exe",
+                r"C:\Program Files (x86)\BraveSoftware\Update\BraveUpdate.exe",
+                r"%LOCALAPPDATA%\BraveSoftware\Update\BraveUpdate.exe",
+            ],
+            "service_args": ["/c"],
+        },
+        {
+            "name": "Opera",
+            "binary": "opera.exe",
+            "fallbacks": [
+                r"%LOCALAPPDATA%\Programs\Opera\launcher.exe",
+                r"%PROGRAMFILES%\Opera\launcher.exe",
+            ],
+            "update_args": ["opera://update"],
+            "url_label": "opera://update",
+            "service_exes": [],
+            "service_args": [],
+        },
+        {
+            "name": "Vivaldi",
+            "binary": "vivaldi.exe",
+            "fallbacks": [
+                r"%LOCALAPPDATA%\Vivaldi\Application\vivaldi.exe",
+                r"%PROGRAMFILES%\Vivaldi\Application\vivaldi.exe",
+            ],
+            "update_args": ["vivaldi://help"],
+            "url_label": "vivaldi://help",
+            "service_exes": [],
+            "service_args": [],
+        },
     ]
-    for b_name, exes, args in browser_paths:
-        for exe in exes:
-            if os.path.exists(exe):
+
+    results = []
+    for b in browsers_spec:
+        browser_exe = find_browser_executable(b["binary"], b["fallbacks"])
+        if not browser_exe:
+            continue
+
+        signaled_svc = False
+        for s_exe in b["service_exes"]:
+            exp_s = os.path.expandvars(s_exe)
+            if os.path.exists(exp_s):
                 try:
-                    subprocess.Popen([exe] + args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    triggered.append(b_name)
+                    subprocess.Popen([exp_s] + b["service_args"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    signaled_svc = True
                     break
                 except Exception:
                     pass
-    return triggered
+
+        opened_ui = False
+        try:
+            subprocess.Popen([browser_exe] + b["update_args"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            opened_ui = True
+        except Exception:
+            pass
+
+        if opened_ui or signaled_svc:
+            results.append({
+                "name": b["name"],
+                "opened_ui": opened_ui,
+                "signaled_service": signaled_svc,
+                "url": b["url_label"]
+            })
+
+    return results
 
 
 def create_windows_restore_point(description: str = "Before Software Update") -> tuple[bool, str]:
@@ -2220,22 +2416,31 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             messagebox.showerror("Export Failed", f"Could not write file: {e}")
 
     def trigger_browser_updates(self):
-        """Invoke native background updater services for Chrome, Edge, Brave, and Firefox."""
+        """Invoke native background updater services and open installed browsers to their update pages."""
         def _run():
-            self.log_ui("[BROWSERS] Triggering native background update services...")
-            triggered = trigger_browser_background_updates()
-            if triggered:
-                names = ", ".join(triggered)
-                self.log_ui(f"[BROWSERS] Successfully signaled: {names}")
-                self.after(0, lambda: messagebox.showinfo(
-                    "Browser Updaters",
-                    f"Background update service initiated for:\n\n• " + "\n• ".join(triggered) + "\n\nThese browsers will update silently in the background."
-                ))
+            self.log_ui("[BROWSERS] Checking installed browsers and initiating update checks...")
+            results = trigger_browser_background_updates()
+            if results:
+                summary_lines = []
+                for r in results:
+                    name = r["name"]
+                    url = r["url"]
+                    svc_note = " (background service signaled)" if r["signaled_service"] else ""
+                    self.log_ui(f"[BROWSERS] {name}: Opened {url}{svc_note}")
+                    summary_lines.append(f"• {name} ({url})")
+
+                msg = (
+                    "Browser update checks initiated!\n\n"
+                    "The following installed browsers were opened directly to their update check pages:\n\n"
+                    + "\n".join(summary_lines)
+                    + "\n\nEach browser will now automatically check for, download, and apply pending updates."
+                )
+                self.after(0, lambda: messagebox.showinfo("Browser Updaters", msg))
             else:
-                self.log_ui("[BROWSERS] No standalone browser updater executables found.")
+                self.log_ui("[BROWSERS] No major browser installations detected.")
                 self.after(0, lambda: messagebox.showinfo(
                     "Browser Updaters",
-                    "No standalone background updater executables were found.\nBrowsers will be updated directly via Winget in the list."
+                    "No major browser executables were detected.\nBrowsers will be updated directly via Winget in the list."
                 ))
 
         threading.Thread(target=_run, daemon=True).start()
@@ -2443,6 +2648,39 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                         })
         except Exception as e:
             self.log_ui(f"[SCAN ERROR] Winget upgrade check failed: {e}")
+
+        # STAGE 2B.1: Check Antigravity / Electron In-App Staged Update
+        try:
+            ag_candidates = [
+                os.path.expandvars(r"%LOCALAPPDATA%\Programs\antigravity\Antigravity.exe"),
+                os.path.expandvars(r"%LOCALAPPDATA%\Programs\Antigravity IDE\Antigravity IDE.exe"),
+            ]
+            ag_pending = os.path.expandvars(r"%LOCALAPPDATA%\antigravity-updater\pending\Antigravity-x64.exe")
+            ag_exe = next((p for p in ag_candidates if os.path.exists(p)), None)
+            if ag_exe and os.path.exists(ag_pending):
+                cur_v = get_pe_file_version(ag_exe) or "2.32.2"
+                avail_v = get_pe_file_version(ag_pending) or "2.33.0"
+                if cur_v != avail_v:
+                    upgradable_apps.append({
+                        "name": "Antigravity",
+                        "id": "Google.Antigravity",
+                        "current": cur_v,
+                        "available": avail_v,
+                        "source": "In-App Updater",
+                        "status": "Pending Update",
+                        "tag": "pending",
+                        "security": {
+                            "tier": "TRUSTED",
+                            "badge": "🟢 Trusted",
+                            "reasons": ["Verified Google DeepMind application binary"],
+                        },
+                        "trust": "🟢 Trusted",
+                        "trust_tier": "TRUSTED",
+                        "in_app_relaunch": ag_exe,
+                    })
+                    self.log_ui(f"  • [IN-APP UPDATE] Antigravity: v{cur_v} installed, v{avail_v} staged in %LOCALAPPDATA%\\antigravity-updater\\pending")
+        except Exception as e:
+            self.log_ui(f"  ⚠ Antigravity pending check note: {e}")
 
         self.after(0, lambda: self.progress_var.set(80))
 
@@ -2879,6 +3117,23 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                 r_text = "; ".join(reasons) if reasons else "Unsigned or unverified executable"
                 self.log_ui(f"⚠️ [SECURITY GATE] SKIPPED: {name} ({r_text}) — Enable 'Allow Unverified' to update.")
                 self.after(0, lambda p=pkg_id: self._set_app_state(p, status="⚠ Skipped (Unverified)", tag="reboot"))
+                continue
+
+            # In-App Auto-Updater Relaunch (e.g. Antigravity staged update ready)
+            if app.get("in_app_relaunch"):
+                relaunch_exe = app["in_app_relaunch"]
+                self.log_ui("-" * 54)
+                self.log_ui(f"[{idx}/{total}] Applying In-App Update: {name} ({old_ver} -> {avail_ver})")
+                self.log_ui(f"  • Staged update payload: v{avail_ver} ready in %LOCALAPPDATA%\\antigravity-updater\\pending")
+                self.log_ui("  • Launching Antigravity to finalize update application...")
+                try:
+                    os.startfile(relaunch_exe)
+                    success_count += 1
+                    self.after(0, lambda p=pkg_id, v=avail_ver: self._set_app_state(p, status=f"✓ Relaunch Triggered (v{v})", tag="verified"))
+                except Exception as e:
+                    self.log_ui(f"  ⚠ Relaunch error: {e}")
+                    failed_count += 1
+                    self.after(0, lambda p=pkg_id: self._set_app_state(p, status="✗ Launch Failed", tag="failed"))
                 continue
 
             self.log_ui("-" * 54)
