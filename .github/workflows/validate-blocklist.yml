@@ -3,10 +3,6 @@ name: Validate PUP Blocklist Schema
 on:
   pull_request:
     branches: [ main ]
-    paths:
-      - 'pup_blocklist.json'
-      - 'scripts/validate_blocklist.py'
-      - '.github/workflows/validate-blocklist.yml'
   push:
     branches: [ main ]
     paths:
