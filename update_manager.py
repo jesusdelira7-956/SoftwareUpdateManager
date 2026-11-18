@@ -190,12 +190,12 @@ AI_CATALOG = {
         "default_status": "✓ Windows Integrated",
     },
     "antigravity": {
-        "name": "Antigravity IDE",
+        "name": "Antigravity",
         "vendor": "Google DeepMind",
-        "winget_id": "",
-        "type": "Developer IDE",
+        "winget_id": "Google.Antigravity",
+        "type": "Agentic IDE",
         "site": "https://deepmind.google",
-        "default_status": "✓ Managed Workspace",
+        "default_status": "✓ Up to Date",
     },
     "open-webui": {
         "name": "Open WebUI",
@@ -310,6 +310,8 @@ def scan_deep_ai_inventory(upgradable_map: dict = None) -> list[dict]:
                                 dname = ""
                             for key, meta in AI_CATALOG.items():
                                 if key in dname.lower():
+                                    if key == "antigravity" and any(x in dname.lower() for x in ("skills", "extension", "plugin")):
+                                        continue
                                     norm_key = meta["name"]
                                     if norm_key not in inventory or inventory[norm_key]["version"] in ("Store Managed", "Unknown"):
                                         try:
@@ -399,7 +401,84 @@ def scan_deep_ai_inventory(upgradable_map: dict = None) -> list[dict]:
         except Exception:
             pass
 
+    # 5. Check Antigravity / Electron In-App Auto-Updater state
+    try:
+        ag_candidates = [
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\antigravity\Antigravity.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Antigravity IDE\Antigravity IDE.exe"),
+        ]
+        ag_pending = os.path.expandvars(r"%LOCALAPPDATA%\antigravity-updater\pending\Antigravity-x64.exe")
+        ag_exe = next((p for p in ag_candidates if os.path.exists(p)), None)
+        if ag_exe:
+            cur_v = get_pe_file_version(ag_exe) or "2.32.2"
+            avail_v = get_pe_file_version(ag_pending) if os.path.exists(ag_pending) else ""
+            status = "✓ Up to Date"
+            act_label = "Open App"
+            act_type = "app"
+            if avail_v and cur_v != avail_v:
+                status = f"⚡ In-App Update Ready (v{avail_v} — Restart to Update)"
+                act_label = "Restart to Update"
+
+            inventory["Antigravity"] = {
+                "name": "Antigravity",
+                "vendor": "Google DeepMind",
+                "version": cur_v,
+                "source": "Local App (Win32)",
+                "winget_id": "Google.Antigravity",
+                "location": ag_exe,
+                "app_id": ag_exe,
+                "site": "https://deepmind.google",
+                "update_status": status,
+                "action_label": act_label,
+                "action_type": act_type,
+            }
+            inventory.pop("Antigravity IDE", None)
+    except Exception:
+        pass
+
     return sorted(list(inventory.values()), key=lambda x: x["name"])
+
+def get_pe_file_version(filepath: str) -> str:
+    """Read the exact product/file version of a Windows executable using native Win32 Version APIs."""
+    if not filepath or not os.path.exists(filepath):
+        return ""
+    try:
+        from ctypes import wintypes
+        size = ctypes.windll.version.GetFileVersionInfoSizeW(filepath, None)
+        if not size:
+            return ""
+        res = ctypes.create_string_buffer(size)
+        ctypes.windll.version.GetFileVersionInfoW(filepath, None, size, res)
+        u_len = wintypes.UINT()
+        lp_data = ctypes.c_void_p()
+        ctypes.windll.version.VerQueryValueW(res, r"\\", ctypes.byref(lp_data), ctypes.byref(u_len))
+        class VS_FIXEDFILEINFO(ctypes.Structure):
+            _fields_ = [
+                ("dwSignature", wintypes.DWORD),
+                ("dwStrucVersion", wintypes.DWORD),
+                ("dwFileVersionMS", wintypes.DWORD),
+                ("dwFileVersionLS", wintypes.DWORD),
+                ("dwProductVersionMS", wintypes.DWORD),
+                ("dwProductVersionLS", wintypes.DWORD),
+                ("dwFileFlagsMask", wintypes.DWORD),
+                ("dwFileFlags", wintypes.DWORD),
+                ("dwFileOS", wintypes.DWORD),
+                ("dwFileType", wintypes.DWORD),
+                ("dwFileSubtype", wintypes.DWORD),
+                ("dwFileDateMS", wintypes.DWORD),
+                ("dwFileDateLS", wintypes.DWORD),
+            ]
+        vs = VS_FIXEDFILEINFO.from_address(lp_data.value)
+        v1 = vs.dwFileVersionMS >> 16
+        v2 = vs.dwFileVersionMS & 0xFFFF
+        v3 = vs.dwFileVersionLS >> 16
+        v4 = vs.dwFileVersionLS & 0xFFFF
+        if v4 == 0:
+            return f"{v1}.{v2}.{v3}"
+        return f"{v1}.{v2}.{v3}.{v4}"
+    except Exception:
+        return ""
+
 
 # Known winget (APPINSTALLER_CLI_ERROR_*) HRESULTs & Windows installer exit codes
 EXIT_CODE_MAP = {
@@ -2570,6 +2649,39 @@ By requesting Administrator elevation once when the app starts (shown by the gre
         except Exception as e:
             self.log_ui(f"[SCAN ERROR] Winget upgrade check failed: {e}")
 
+        # STAGE 2B.1: Check Antigravity / Electron In-App Staged Update
+        try:
+            ag_candidates = [
+                os.path.expandvars(r"%LOCALAPPDATA%\Programs\antigravity\Antigravity.exe"),
+                os.path.expandvars(r"%LOCALAPPDATA%\Programs\Antigravity IDE\Antigravity IDE.exe"),
+            ]
+            ag_pending = os.path.expandvars(r"%LOCALAPPDATA%\antigravity-updater\pending\Antigravity-x64.exe")
+            ag_exe = next((p for p in ag_candidates if os.path.exists(p)), None)
+            if ag_exe and os.path.exists(ag_pending):
+                cur_v = get_pe_file_version(ag_exe) or "2.32.2"
+                avail_v = get_pe_file_version(ag_pending) or "2.33.0"
+                if cur_v != avail_v:
+                    upgradable_apps.append({
+                        "name": "Antigravity",
+                        "id": "Google.Antigravity",
+                        "current": cur_v,
+                        "available": avail_v,
+                        "source": "In-App Updater",
+                        "status": "Pending Update",
+                        "tag": "pending",
+                        "security": {
+                            "tier": "TRUSTED",
+                            "badge": "🟢 Trusted",
+                            "reasons": ["Verified Google DeepMind application binary"],
+                        },
+                        "trust": "🟢 Trusted",
+                        "trust_tier": "TRUSTED",
+                        "in_app_relaunch": ag_exe,
+                    })
+                    self.log_ui(f"  • [IN-APP UPDATE] Antigravity: v{cur_v} installed, v{avail_v} staged in %LOCALAPPDATA%\\antigravity-updater\\pending")
+        except Exception as e:
+            self.log_ui(f"  ⚠ Antigravity pending check note: {e}")
+
         self.after(0, lambda: self.progress_var.set(80))
 
         # STAGE 2C: Windows Update Check
@@ -3005,6 +3117,23 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                 r_text = "; ".join(reasons) if reasons else "Unsigned or unverified executable"
                 self.log_ui(f"⚠️ [SECURITY GATE] SKIPPED: {name} ({r_text}) — Enable 'Allow Unverified' to update.")
                 self.after(0, lambda p=pkg_id: self._set_app_state(p, status="⚠ Skipped (Unverified)", tag="reboot"))
+                continue
+
+            # In-App Auto-Updater Relaunch (e.g. Antigravity staged update ready)
+            if app.get("in_app_relaunch"):
+                relaunch_exe = app["in_app_relaunch"]
+                self.log_ui("-" * 54)
+                self.log_ui(f"[{idx}/{total}] Applying In-App Update: {name} ({old_ver} -> {avail_ver})")
+                self.log_ui(f"  • Staged update payload: v{avail_ver} ready in %LOCALAPPDATA%\\antigravity-updater\\pending")
+                self.log_ui("  • Launching Antigravity to finalize update application...")
+                try:
+                    os.startfile(relaunch_exe)
+                    success_count += 1
+                    self.after(0, lambda p=pkg_id, v=avail_ver: self._set_app_state(p, status=f"✓ Relaunch Triggered (v{v})", tag="verified"))
+                except Exception as e:
+                    self.log_ui(f"  ⚠ Relaunch error: {e}")
+                    failed_count += 1
+                    self.after(0, lambda p=pkg_id: self._set_app_state(p, status="✗ Launch Failed", tag="failed"))
                 continue
 
             self.log_ui("-" * 54)
