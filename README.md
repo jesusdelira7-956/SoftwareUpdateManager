@@ -1,11 +1,14 @@
-# 🛡️ Windows Software Update Manager & System Auditor (v2.3)
+# 🛡️ Windows Software Update Manager & Intrusion Shield (v2.4)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-brightgreen.svg)](https://www.python.org/downloads/)
 [![Platform: Windows 10/11](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6.svg)](https://microsoft.com)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow.svg?logo=buy-me-a-coffee)](https://buymeacoffee.com/JesseInTheLab)
 
-A portable, high-performance desktop application for **Windows 10 & Windows 11** that audits hardware specifications, performs deep software inventory, updates software **sequentially one-by-one**, provides an offline/cloud **Pre-Update Security & Trust Gate** against PUPs/adware, audits all AI suites across Registry/Store/PATH, reconciles developer CLI versions, orchestrates browser updates, and cryptographically verifies each installation.
+A portable, high-performance desktop application for **Windows 10 & Windows 11** that keeps your computer updated, audits hardware specifications, performs deep software inventory, updates software **sequentially one-by-one**, provides an offline/cloud **Pre-Update Security & Trust Gate** against PUPs/adware, defends against network probes and unauthenticated local AI ports with the **Network Boundary Sentinel & Intrusion Shield**, audits all AI suites across Registry/Store/PATH, reconciles developer CLI versions, orchestrates browser updates, and cryptographically verifies each installation.
+
+> [!NOTE]
+> **Our Mission:** The purpose of Software Update Manager is to keep the user's computer fully updated while proactively protecting it from unknown network intrusions, exposed local AI ports (`0.0.0.0`), and malicious payloads — **and all for Free & 100% Open-Source.**
 
 ---
 
@@ -73,7 +76,13 @@ Or double-click **`Run_Update_Manager.bat`**.
 
 ## ✨ Key Features
 
-- **🛡️ Pre-Update Security & Trust Gate (v2.3 New!)**:
+- **🛡️ Zero-Dependency Network Boundary Sentinel & Intrusion Shield (v2.4 New!)**:
+  Proactively protects the user's computer from autonomous network exploitation frameworks (e.g. ARTEX threat model), unauthenticated local AI endpoints, and lateral LAN snooping:
+  - **Zero-Dependency Socket Auditor (`network_auditor.py`)**: Uses native Windows `netstat` and `tasklist` (100% Python standard library, zero pip packages) to identify all active listening TCP ports across local AI and developer daemons (Ollama 11434, LM Studio 1234, Open WebUI 8081, DwarfStar 8088, Antigravity App Hub 8890, OpenCode 49374, ComfyUI 8188, dev ports 3000-5000, 8000-9000).
+  - **Exposure Classification**: Automatically tags every AI tool as `🟢 Localhost (Isolated)` (bound strictly to `127.0.0.1`), `🔴 Exposed to LAN (0.0.0.0)` (bound to all interfaces and reachable from Wi-Fi/LAN devices), or `⚪ Desktop Native (Offline Client)`.
+  - **1-Click Native Firewall Hardener**: Inside the AI Dev Hub, toggle **"🛡️ Harden Firewall (Block LAN Probes)"** to configure a native Windows Defender Firewall rule (`SoftwareUpdateManager_Block_DevPorts_LAN`) blocking incoming LAN probes on developer/AI ports while keeping `127.0.0.1` localhost loopback 100% open for desktop development.
+  - **Package Metadata Sanitization**: Sanitizes untrusted package descriptions, display names, and arguments against Indirect Prompt Injection (IPI) and argument tampering.
+- **🛡️ Pre-Update Security & Trust Gate (v2.3)**:
   To protect against inadvertent installation or legitimization of spyware, adware, Potentially Unwanted Programs (PUPs), or hijacked binaries:
   - **Offline Authenticode Signature Verification**: Evaluates executables via PowerShell `Get-AuthenticodeSignature` to confirm valid vendor code signatures and publisher identity.
   - **Suspicious Install Path Heuristics**: Detects executables residing in anomalous or high-risk folders (`%TEMP%`, `C:\Users\Public`, `\ProgramData\`, `%AppData%\Roaming`).
@@ -126,7 +135,8 @@ SoftwareUpdateManager/
 │   └── validate-blocklist.yml   # GitHub Actions CI schema & safety validator
 ├── scripts/
 │   └── validate_blocklist.py    # Zero-dependency blocklist schema & safety checker
-├── update_manager.py            # Main application & GUI (v2.3 Master Edition)
+├── update_manager.py            # Main application & GUI (v2.4 Master Edition)
+├── network_auditor.py           # Network Boundary Sentinel & Intrusion Shield (v2.4)
 ├── security_auditor.py          # Pre-Update Security & Trust Gate (100% Python stdlib)
 ├── pup_blocklist.json           # Known PUP, adware, and high-risk path definitions
 ├── Install.cmd                  # 1-click double-clickable installer (Option 2)

@@ -34,9 +34,10 @@ from pathlib import Path
 from typing import Optional, Dict, List, Tuple, Any
 
 from security_auditor import SecurityAuditor
+import network_auditor
 
 APP_NAME = "Software Update Manager"
-APP_VERSION = "2.3.0"
+APP_VERSION = "2.4.0"
 APP_DIR = Path(__file__).parent.resolve()
 LOG_FILE = APP_DIR / "update_history.log"
 DONATION_URL = "https://buymeacoffee.com/JesseInTheLab"
@@ -435,6 +436,63 @@ def scan_deep_ai_inventory(upgradable_map: dict = None) -> list[dict]:
             inventory.pop("Antigravity IDE", None)
     except Exception:
         pass
+
+    # 6. Zero-Dependency Network Boundary & Intrusion Audit (v2.4)
+    try:
+        listeners = network_auditor.audit_listening_ports()
+        for item in inventory.values():
+            item_name = item.get("name", "").lower()
+            matched_listener = None
+            for l in listeners:
+                proc = l.get("process_name", "").lower()
+                desc = l.get("service_desc", "").lower()
+                port = str(l.get("port", ""))
+                if (proc and proc in item_name) or (item_name in desc) or (port in item.get("location", "")):
+                    matched_listener = l
+                    break
+                # Special cases for Ollama, LM Studio, etc.
+                if "ollama" in item_name and l.get("port") == 11434:
+                    matched_listener = l
+                    break
+                if "lm studio" in item_name and l.get("port") == 1234:
+                    matched_listener = l
+                    break
+                if "antigravity" in item_name and l.get("port") == 8890:
+                    matched_listener = l
+                    break
+
+            if matched_listener:
+                item["network_status"] = matched_listener["badge"]
+                item["listener_info"] = matched_listener
+            else:
+                item["network_status"] = "⚪ Desktop Native (Offline Client)"
+
+        # Also register any active listening AI daemons detected on ports but not in inventory
+        for l in listeners:
+            port = l.get("port", 0)
+            if port in network_auditor.KNOWN_AI_DEV_PORTS:
+                svc_title = network_auditor.KNOWN_AI_DEV_PORTS[port]
+                # Avoid duplicate if already in inventory
+                if not any(svc_title.lower() in it.get("name", "").lower() or it.get("name", "").lower() in svc_title.lower() for it in inventory.values()):
+                    inventory[svc_title] = {
+                        "name": svc_title,
+                        "vendor": "Local AI Daemon / Stack",
+                        "version": f"Port {port} (PID {l.get('pid', 'N/A')})",
+                        "source": "Active Network Daemon",
+                        "winget_id": "",
+                        "location": f"{l.get('process_name', 'Unknown')} (PID {l.get('pid')})",
+                        "app_id": f"http://127.0.0.1:{port}",
+                        "site": f"http://localhost:{port}",
+                        "update_status": "✓ Active Daemon",
+                        "action_label": "Open Localhost",
+                        "action_type": "web",
+                        "network_status": l.get("badge", "🟢 Localhost (Isolated)"),
+                        "listener_info": l,
+                    }
+    except Exception:
+        for item in inventory.values():
+            if "network_status" not in item:
+                item["network_status"] = "⚪ Desktop Native (Offline Client)"
 
     return sorted(list(inventory.values()), key=lambda x: x["name"])
 
@@ -1026,6 +1084,20 @@ def scan_computer_specs() -> dict:
     except Exception:
         pass
 
+    # 8. Zero-Dependency Network Boundary & Intrusion Shield Audit (v2.4)
+    try:
+        listeners = network_auditor.audit_listening_ports()
+        specs["network_listeners"] = listeners
+        specs["exposed_ports_count"] = sum(1 for l in listeners if l.get("is_exposed"))
+        is_shield_active, shield_desc = network_auditor.audit_firewall_shield()
+        specs["firewall_shield_active"] = is_shield_active
+        specs["firewall_shield_status"] = shield_desc
+    except Exception:
+        specs["network_listeners"] = []
+        specs["exposed_ports_count"] = 0
+        specs["firewall_shield_active"] = False
+        specs["firewall_shield_status"] = "Not Audited"
+
     return specs
 
 
@@ -1496,6 +1568,36 @@ class UpdateManagerApp(tk.Tk):
         )
         btn_dismiss_store.pack(side=tk.RIGHT, padx=(3, 0))
 
+        # 2c. Purpose & Defensive Hardening Mission Banner (Option C)
+        self.mission_frame = tk.Frame(
+            self, bg="#064e3b", highlightbackground="#10b981", highlightthickness=1, padx=14, pady=5
+        )
+        self.mission_frame.pack(fill=tk.X, padx=20, pady=(0, 4))
+        lbl_mission = tk.Label(
+            self.mission_frame,
+            text="🛡️ Purpose & Mission: Keep your computer fully updated while proactively protecting it against unknown network intrusions, exposed AI ports, and malicious payloads — 100% Free & Open-Source.",
+            bg="#064e3b", fg="#a7f3d0", font=("Segoe UI", 9, "bold"), anchor="w", justify=tk.LEFT
+        )
+        lbl_mission.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        btn_ai_shield = tk.Button(
+            self.mission_frame,
+            text="🛡️ Intrusion & AI Shield",
+            command=self.open_ai_dev_hub,
+            bg="#059669", fg="#ffffff", activebackground="#047857", activeforeground="#ffffff",
+            font=("Segoe UI", 8, "bold"), relief="flat", padx=8, pady=2, cursor="hand2"
+        )
+        btn_ai_shield.pack(side=tk.RIGHT, padx=3)
+
+        btn_dismiss_mission = tk.Button(
+            self.mission_frame,
+            text="✖",
+            command=lambda: self.mission_frame.pack_forget(),
+            bg="#064e3b", fg="#6ee7b7", activebackground="#047857", activeforeground="#ffffff",
+            font=("Segoe UI", 8, "bold"), relief="flat", padx=4, pady=1, cursor="hand2"
+        )
+        btn_dismiss_mission.pack(side=tk.RIGHT, padx=(2, 0))
+
         # 3. Main Split-Pane Container (Native Draggable PanedWindow)
         self.main_paned = ttk.PanedWindow(self, orient=tk.VERTICAL)
         self.main_paned.pack(fill=tk.BOTH, expand=True, padx=20, pady=(6, 10))
@@ -1832,7 +1934,7 @@ class UpdateManagerApp(tk.Tk):
 
         self.specs_grid = tk.Frame(specs_card, bg=self.card_bg)
         self.specs_grid.pack(fill=tk.X)
-        for c in range(3):
+        for c in range(4):
             self.specs_grid.columnconfigure(c, weight=1)
 
         self.spec_labels = {}
@@ -1843,13 +1945,15 @@ class UpdateManagerApp(tk.Tk):
             ("gpu", "Graphics Card (GPU)"),
             ("ram", "Memory (RAM)"),
             ("storage", "Storage Drives"),
+            ("network_shield", "🛡️ Network Boundary Sentinel"),
+            ("firewall_status", "🛡️ Firewall LAN Shield"),
         ]
         for idx, (key, title) in enumerate(fields):
-            r, c = divmod(idx, 3)
+            r, c = divmod(idx, 4)
             box = tk.Frame(self.specs_grid, bg="#172033", padx=10, pady=6)
             box.grid(row=r, column=c, sticky="nsew", padx=4, pady=4)
             tk.Label(box, text=title, bg="#172033", fg=self.text_muted, font=("Segoe UI", 8, "bold")).pack(anchor="w")
-            lbl = tk.Label(box, text="Scanning...", bg="#172033", fg=self.text_color, font=("Segoe UI", 9, "bold"), anchor="w", justify=tk.LEFT, wraplength=300)
+            lbl = tk.Label(box, text="Scanning...", bg="#172033", fg=self.text_color, font=("Segoe UI", 9, "bold"), anchor="w", justify=tk.LEFT, wraplength=260)
             lbl.pack(anchor="w", pady=(2, 0))
             self.spec_labels[key] = lbl
 
@@ -1946,9 +2050,11 @@ class UpdateManagerApp(tk.Tk):
         )
         help_text.pack(fill=tk.BOTH, expand=True)
 
-        guide_content = """📘 WELCOME TO SOFTWARE UPDATE MANAGER & AUDITOR (v2.3)
+        guide_content = """📘 WELCOME TO SOFTWARE UPDATE MANAGER & AUDITOR (v2.4)
 ================================================================================
-This utility is designed to work out-of-the-box on ANY Windows 10 or Windows 11 computer. It automatically audits your computer's hardware specifications, scans all installed software, checks Authenticode digital signatures & PUP blocklists, finds available updates, installs them sequentially, and verifies every update.
+The purpose of Software Update Manager is to keep your computer fully updated while proactively protecting it from unknown network intrusions, exposed local AI ports, and malicious payloads — 100% Free & Open-Source.
+
+It automatically audits your computer's hardware specifications, scans all installed software, checks Authenticode digital signatures & PUP blocklists, audits listening network sockets, finds available updates, installs them sequentially, and verifies every update.
 
 --------------------------------------------------------------------------------
 1. FAST ONE-LINER INSTALLATION (OPTION A)
@@ -1962,7 +2068,7 @@ This automatically ensures Python 3 and Winget are configured, creates the Deskt
 2. HOW THE TWO-STAGE AUTOMATIC SCAN WORKS
 --------------------------------------------------------------------------------
 When you launch the app (or click "🔄 Full System & Update Scan"):
-  • STAGE 1 (Computer Specs Scan): First, the app detects your computer's CPU, Graphics Card (GPU + VRAM), Memory (RAM), Storage Drives, Windows Build, and Administrator status. It updates the top-right hardware badge and populates the "💻 Computer Specs & Installed Apps" tab.
+  • STAGE 1 (Computer Specs Scan): First, the app detects your computer's CPU, Graphics Card (GPU + VRAM), Memory (RAM), Storage Drives, Windows Build, Network Boundary listeners, and Administrator status. It updates the top-right hardware badge and populates the "💻 Computer Specs & Installed Apps" tab.
   • STAGE 2 (Deep Software & Update Scan): Next, it scans the Windows Registry for every installed application and checks Microsoft's Windows Package Manager (Winget) for newer versions, plus checks for pending Windows OS updates.
 
 --------------------------------------------------------------------------------
@@ -1982,7 +2088,20 @@ Before updating any package, the application executes a zero-dependency Trust & 
       Right-click any application in the table to view security details, inspect its SHA-256 on VirusTotal, or open its file location in File Explorer.
 
 --------------------------------------------------------------------------------
-4. SPECIALIZED AI & DEV SUITES, BROWSERS & MICROSOFT STORE
+4. NETWORK BOUNDARY SENTINEL & INTRUSION SHIELD (v2.4 NEW!) — 100% FREE
+--------------------------------------------------------------------------------
+Proactively protects your computer against autonomous network scanning platforms (e.g. ARTEX threat model), unauthenticated local AI endpoints, and lateral LAN intrusions:
+  • Zero-Dependency Socket Audit:
+    Audits all active listening TCP ports via native netstat to identify developer runtimes and local AI engines (Ollama 11434, LM Studio 1234, Open WebUI 8081, DwarfStar 8088, App Hub 8890, OpenCode 49374, ComfyUI 8188, dev ports 3000-5000, 8000-9000).
+  • Exposure Classification:
+      🟢 Localhost (Isolated)   : Bound safely to 127.0.0.1 loopback only. Protected from external LAN probes.
+      🔴 Exposed to LAN (0.0.0.0): Bound to all network interfaces. Vulnerable to rogue devices on Wi-Fi/LAN.
+      ⚪ Desktop Native (Offline): Standard desktop client executable with no active listening network ports.
+  • 1-Click Windows Defender Firewall Hardener:
+    Inside the "🤖 AI Suites" hub, click "🛡️ Harden Firewall (Block LAN Probes)" to toggle a native Windows Defender Firewall inbound block rule (SoftwareUpdateManager_Block_DevPorts_LAN) that blocks incoming LAN probes on AI/developer ports while preserving 100% full local loopback (127.0.0.1) connectivity.
+
+--------------------------------------------------------------------------------
+5. SPECIALIZED AI & DEV SUITES, BROWSERS & MICROSOFT STORE
 --------------------------------------------------------------------------------
   • 🤖 AI & Dev Tools:
     Click the "🤖 AI & Dev Tools" button in the filter toolbar to instantly select and prioritize updates for AI assistants and developer suites (Antigravity IDE, Cursor, VS Code, Android Studio, GitHub Copilot, Ollama, LM Studio, Pinokio, Docker Desktop, etc.).
@@ -1992,7 +2111,7 @@ Before updating any package, the application executes a zero-dependency Trust & 
     Click "🛍️ Store Apps" or use the top banner to trigger the Windows Store background update service (InstallService) and launch the Microsoft Store directly to "Updates & downloads" where queued updates (Notepad, Paint, Xbox, Snipping Tool, HP) can be monitored and updated.
 
 --------------------------------------------------------------------------------
-5. HOW TO UPDATE YOUR SOFTWARE
+6. HOW TO UPDATE YOUR SOFTWARE
 --------------------------------------------------------------------------------
   • Update Everything Sequentially:
     Click "⚡ Push All Updates (One-by-One)". The app downloads and installs updates strictly one at a time so installers never collide or lock the same system files.
@@ -2004,7 +2123,7 @@ Before updating any package, the application executes a zero-dependency Trust & 
     Click "⏹ Stop Batch" at any time during updates; the app will safely finish the current installer and stop before starting the next one.
 
 --------------------------------------------------------------------------------
-6. MEANING OF UPDATE STATUS BADGES
+7. MEANING OF UPDATE STATUS BADGES
 --------------------------------------------------------------------------------
   • Pending Update (Blue)     : A newer version is available and ready to install.
   • Installing... (Amber)     : Winget is currently downloading and running the installer.
@@ -2014,7 +2133,7 @@ Before updating any package, the application executes a zero-dependency Trust & 
   • ✗ Failed                  : The installer returned an error code. Check the live log for details.
 
 --------------------------------------------------------------------------------
-7. WHY ADMINISTRATOR MODE IS ENABLED AT STARTUP
+8. WHY ADMINISTRATOR MODE IS ENABLED AT STARTUP
 --------------------------------------------------------------------------------
 Many system applications (such as Visual C++ Redistributables, .NET Runtimes, VLC, 7-Zip, and Hardware Drivers) require Administrator rights to update files in "C:\\Program Files".
 By requesting Administrator elevation once when the app starts (shown by the green "🛡️ Administrator" badge in the top-right), all updates run smoothly without interrupting you with repeated UAC prompts.
@@ -2143,16 +2262,16 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             self.ai_inventory = scan_deep_ai_inventory(upg_map)
 
         win = tk.Toplevel(self)
-        win.title("🤖 Deep AI & Inference Suite Auditor - Software Update Manager")
-        win.geometry("980x620")
-        win.minsize(840, 500)
+        win.title("🤖 Deep AI & Local Inference Suite Auditor - Software Update Manager")
+        win.geometry("1100x640")
+        win.minsize(940, 520)
         win.configure(bg="#0b1329")
         win.transient(self)
 
         # Center over parent
         try:
-            x = self.winfo_rootx() + (self.winfo_width() // 2) - 490
-            y = self.winfo_rooty() + (self.winfo_height() // 2) - 310
+            x = self.winfo_rootx() + (self.winfo_width() // 2) - 550
+            y = self.winfo_rooty() + (self.winfo_height() // 2) - 320
             win.geometry(f"+{max(10, x)}+{max(10, y)}")
         except Exception:
             pass
@@ -2182,30 +2301,40 @@ By requesting Administrator elevation once when the app starts (shown by the gre
         total_cnt = len(self.ai_inventory)
         up_to_date_cnt = sum(1 for a in self.ai_inventory if "✓" in a.get("update_status", ""))
         action_cnt = total_cnt - up_to_date_cnt
+        fw_active, fw_note = network_auditor.audit_firewall_shield()
+        exposed_cnt = sum(1 for a in self.ai_inventory if "0.0.0.0" in a.get("network_status", ""))
 
-        tk.Label(
+        lbl_stats_str = (
+            f"AI Suites: {total_cnt}   |   ✓ Up to Date: {up_to_date_cnt}   |   ⚡ Actions: {action_cnt}   |   "
+            f"🛡️ Firewall Shield: {'Active' if fw_active else 'Unshielded'}   |   "
+            f"{'⚠️ Exposed Ports: ' + str(exposed_cnt) if exposed_cnt else '🟢 All Isolated (127.0.0.1)'}"
+        )
+        lbl_stats = tk.Label(
             stats_frame,
-            text=f"Total AI Suites Detected: {total_cnt}   |   ✓ Up to Date: {up_to_date_cnt}   |   ⚡ In-App / Store / Actions: {action_cnt}",
+            text=lbl_stats_str,
             bg="#0b1329", fg="#38bdf8", font=("Segoe UI", 9, "bold")
-        ).pack(side=tk.LEFT)
+        )
+        lbl_stats.pack(side=tk.LEFT)
 
         # Treeview Table
         tree_frame = ttk.Frame(win, style="Card.TFrame", padding=1)
         tree_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
 
-        cols = ("name", "vendor", "version", "source", "status")
+        cols = ("name", "vendor", "version", "source", "status", "network")
         ai_tree = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse")
         ai_tree.heading("name", text="AI Software / Suite", anchor="w")
         ai_tree.heading("vendor", text="Developer / Vendor", anchor="w")
         ai_tree.heading("version", text="Installed Version", anchor="center")
         ai_tree.heading("source", text="Installation Source", anchor="w")
         ai_tree.heading("status", text="Update Status / Delivery Channel", anchor="w")
+        ai_tree.heading("network", text="Network Boundary / Intrusion", anchor="w")
 
-        ai_tree.column("name", width=180, minwidth=130, anchor="w")
-        ai_tree.column("vendor", width=130, minwidth=100, anchor="w")
-        ai_tree.column("version", width=120, minwidth=90, anchor="center")
-        ai_tree.column("source", width=170, minwidth=130, anchor="w")
-        ai_tree.column("status", width=290, minwidth=220, anchor="w")
+        ai_tree.column("name", width=170, minwidth=130, anchor="w")
+        ai_tree.column("vendor", width=120, minwidth=100, anchor="w")
+        ai_tree.column("version", width=110, minwidth=90, anchor="center")
+        ai_tree.column("source", width=150, minwidth=120, anchor="w")
+        ai_tree.column("status", width=220, minwidth=170, anchor="w")
+        ai_tree.column("network", width=190, minwidth=150, anchor="w")
 
         sb = ttk.Scrollbar(tree_frame, orient="vertical", command=ai_tree.yview)
         ai_tree.configure(yscrollcommand=sb.set)
@@ -2217,13 +2346,17 @@ By requesting Administrator elevation once when the app starts (shown by the gre
         ai_tree.tag_configure("relaunch", foreground="#38bdf8")
         ai_tree.tag_configure("update", foreground="#fbbf24")
         ai_tree.tag_configure("store", foreground="#c084fc")
+        ai_tree.tag_configure("exposed", foreground="#f87171")
 
         def _populate_tree():
             ai_tree.delete(*ai_tree.get_children())
             for idx, item in enumerate(self.ai_inventory):
                 st = item.get("update_status", "")
+                net_st = item.get("network_status", "⚪ Desktop Native (Offline Client)")
                 tag = "ok"
-                if "Relaunch" in st or "In-App" in st:
+                if "0.0.0.0" in net_st or "Exposed" in net_st:
+                    tag = "exposed"
+                elif "Relaunch" in st or "In-App" in st:
                     tag = "relaunch"
                 elif "Update Available" in st or "Available" in st:
                     tag = "update"
@@ -2238,6 +2371,7 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                         item.get("version", ""),
                         item.get("source", ""),
                         item.get("update_status", ""),
+                        net_st,
                     ),
                     tags=(tag,)
                 )
@@ -2313,7 +2447,63 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                 upg_map = {a["id"].lower(): a for a in self.upgradable_apps}
             self.ai_inventory = scan_deep_ai_inventory(upg_map)
             _populate_tree()
+            _refresh_stats()
             self.log_ui(f"[AI AUDIT] Re-scanned system: {len(self.ai_inventory)} AI software suites audited.")
+
+        def _refresh_stats():
+            tot = len(self.ai_inventory)
+            upt = sum(1 for a in self.ai_inventory if "✓" in a.get("update_status", ""))
+            act = tot - upt
+            fw_act, _ = network_auditor.audit_firewall_shield()
+            exp = sum(1 for a in self.ai_inventory if "0.0.0.0" in a.get("network_status", ""))
+            s_text = (
+                f"AI Suites: {tot}   |   ✓ Up to Date: {upt}   |   ⚡ Actions: {act}   |   "
+                f"🛡️ Firewall Shield: {'Active' if fw_act else 'Unshielded'}   |   "
+                f"{'⚠️ Exposed Ports: ' + str(exp) if exp else '🟢 All Isolated (127.0.0.1)'}"
+            )
+            lbl_stats.config(text=s_text)
+            if hasattr(win, "btn_fw") and win.btn_fw.winfo_exists():
+                win.btn_fw.config(
+                    text="🛡️ Firewall Shield: Active" if fw_act else "🛡️ Harden Firewall (Block LAN Probes)",
+                    bg="#059669" if fw_act else "#b45309",
+                    activebackground="#047857" if fw_act else "#92400e"
+                )
+
+        def _toggle_firewall_shield():
+            is_active, desc = network_auditor.audit_firewall_shield()
+            if is_active:
+                ans = messagebox.askyesno(
+                    "Disable Firewall Shield?",
+                    f"The Windows Firewall Intrusion Shield is currently ACTIVE:\n\n{desc}\n\n"
+                    "Do you want to DISABLE this rule and reopen developer ports to LAN probes?",
+                    parent=win
+                )
+                if ans:
+                    ok, msg = network_auditor.apply_firewall_shield(False)
+                    if ok:
+                        messagebox.showinfo("Firewall Shield Disabled", msg, parent=win)
+                    else:
+                        messagebox.showerror("Error", msg, parent=win)
+                    _rescan()
+            else:
+                ans = messagebox.askyesno(
+                    "Activate Firewall Intrusion Shield?",
+                    "This will configure a native Windows Defender Firewall rule to block external inbound "
+                    "LAN and Wi-Fi probes on local AI and developer ports:\n\n"
+                    "• Ports Protected: 11434, 1234, 8081, 8088, 8890, 8892, 8895, 8896, 49374, 8188, 7860, 3000-5000, 8000-9000\n\n"
+                    "✓ Localhost (127.0.0.1) loopback remains 100% accessible to local apps.\n"
+                    "✓ Defends against autonomous LAN scanners (e.g. ARTEX) and unauthenticated API probes.\n"
+                    "✓ 100% Free & Open-Source (zero third-party services).\n\n"
+                    "Do you want to activate the Intrusion Shield now?",
+                    parent=win
+                )
+                if ans:
+                    ok, msg = network_auditor.apply_firewall_shield(True)
+                    if ok:
+                        messagebox.showinfo("Intrusion Shield Active", msg, parent=win)
+                    else:
+                        messagebox.showerror("Firewall Error", msg, parent=win)
+                    _rescan()
 
         def _export():
             self.export_ai_audit_report()
@@ -2329,6 +2519,23 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff",
             font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=5, cursor="hand2"
         ).pack(side=tk.LEFT, padx=(0, 6))
+
+        fw_cur_act, _ = network_auditor.audit_firewall_shield()
+        win.btn_fw = tk.Button(
+            btn_bar,
+            text="🛡️ Firewall Shield: Active" if fw_cur_act else "🛡️ Harden Firewall (Block LAN Probes)",
+            command=_toggle_firewall_shield,
+            bg="#059669" if fw_cur_act else "#b45309",
+            fg="#ffffff",
+            activebackground="#047857" if fw_cur_act else "#92400e",
+            activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            padx=10,
+            pady=5,
+            cursor="hand2"
+        )
+        win.btn_fw.pack(side=tk.LEFT, padx=6)
 
         tk.Button(
             btn_bar, text="🛍️ Open Store Updates", command=_open_store,
@@ -2378,29 +2585,32 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             return
 
         lines = [
-            "=" * 74,
-            f"   DEEP AI SOFTWARE & LOCAL INFERENCE ENGINE AUDIT REPORT",
-            "=" * 74,
-            f"Timestamp    : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            f"Host Computer: {self.specs.get('hostname', 'PC')}",
-            f"OS Version   : {self.specs.get('os_name', 'Windows')} (Build {self.specs.get('os_build', 'N/A')})",
-            f"Total AI Apps: {len(self.ai_inventory)} detected across Registry, Store & PATH",
-            "=" * 74,
+            "=" * 90,
+            f"   DEEP AI SOFTWARE, INFERENCE ENGINES & NETWORK INTRUSION AUDIT REPORT",
+            "=" * 90,
+            f"Timestamp         : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"Host Computer     : {self.specs.get('hostname', 'PC')}",
+            f"OS Version        : {self.specs.get('os_name', 'Windows')} (Build {self.specs.get('os_build', 'N/A')})",
+            f"Total AI Apps     : {len(self.ai_inventory)} detected across Registry, Store & PATH",
+            f"Firewall Shield   : {self.specs.get('firewall_shield_status', 'Unknown')}",
+            f"Exposed LAN Ports : {self.specs.get('exposed_ports_count', 0)}",
+            "=" * 90,
             "",
-            f"{'AI SOFTWARE':<22} | {'VENDOR':<15} | {'VERSION':<15} | {'SOURCE':<24} | {'STATUS'}",
-            "-" * 105,
+            f"{'AI SOFTWARE':<22} | {'VENDOR':<15} | {'VERSION':<15} | {'STATUS':<24} | {'NETWORK BOUNDARY'}",
+            "-" * 110,
         ]
         for it in self.ai_inventory:
             lines.append(
-                f"{it.get('name', ''):<22} | {it.get('vendor', ''):<15} | {it.get('version', ''):<15} | {it.get('source', ''):<24} | {it.get('update_status', '')}"
+                f"{it.get('name', ''):<22} | {it.get('vendor', ''):<15} | {it.get('version', ''):<15} | {it.get('update_status', ''):<24} | {it.get('network_status', '⚪ Offline')}"
             )
-        lines.append("-" * 105)
-        lines.append("\nDETAILED INSTALLATION PATHS & APP IDENTIFIERS:\n")
+        lines.append("-" * 110)
+        lines.append("\nDETAILED INSTALLATION PATHS & NETWORK LISTENER INFO:\n")
         for it in self.ai_inventory:
             lines.append(f"• {it.get('name')} ({it.get('vendor')})")
             lines.append(f"  - Version       : {it.get('version')}")
             lines.append(f"  - Source        : {it.get('source')}")
             lines.append(f"  - Update Status : {it.get('update_status')}")
+            lines.append(f"  - Network Status: {it.get('network_status', '⚪ Offline')}")
             lines.append(f"  - Location/ID   : {it.get('app_id') or it.get('location') or 'Standard System'}")
             if it.get("site"):
                 lines.append(f"  - Official Site : {it.get('site')}")
@@ -2765,8 +2975,27 @@ By requesting Administrator elevation once when the app starts (shown by the gre
         ] or ["Standard Disk Storage"]
         self.spec_labels["storage"].config(text="\n".join(drive_lines[:3]))
 
+        # Network Boundary & Firewall LAN Shield
+        exp_cnt = specs.get("exposed_ports_count", 0)
+        tot_listeners = len(specs.get("network_listeners", []))
+        if exp_cnt > 0:
+            net_text = f"⚠️ {exp_cnt} Ports Exposed (0.0.0.0)\nTotal Listeners: {tot_listeners} (Review in AI Hub)"
+        else:
+            net_text = f"🟢 Secure / Isolated (127.0.0.1)\nTotal Listeners: {tot_listeners} Active"
+        self.spec_labels["network_shield"].config(text=net_text)
+
+        fw_act = specs.get("firewall_shield_active", False)
+        fw_status = specs.get("firewall_shield_status", "Not Configured")
+        fw_text = f"{'🛡️ Active (Protected)' if fw_act else '⚠️ Unshielded'}\n{fw_status}"
+        self.spec_labels["firewall_status"].config(text=fw_text)
+
         # Generate Tailored Recommendations for this computer
         recs = []
+        if specs.get("exposed_ports_count", 0) > 0:
+            recs.append(f"• ⚠️ Network Exposure Alert: Detected {specs['exposed_ports_count']} port(s) bound to 0.0.0.0. Click 'AI Suites' -> '🛡️ Harden Firewall' to block external LAN probes.")
+        else:
+            recs.append("• 🛡️ Network Boundary Health: All listening developer & local AI services are safely isolated to 127.0.0.1 loopback.")
+
         if specs["ram_total_gb"] <= 8:
             recs.append("• Memory: 8 GB RAM or less detected. Closing heavy browser tabs before running large updates is recommended.")
         elif specs["ram_used_pct"] >= 85:
@@ -3329,21 +3558,30 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             for d in self.specs.get("drives", []):
                 lines.append(f"  Drive {d['drive']} ({d['type']}): {d['used_gb']} GB used / {d['total_gb']} GB total ({d['free_gb']} GB free)")
 
-            lines.extend(["", f"[3. PENDING WINDOWS OS UPDATES ({len(self.windows_updates)})]"])
+            lines.extend([
+                "",
+                f"[3. ZERO-DEPENDENCY NETWORK BOUNDARY & INTRUSION SHIELD ({len(self.specs.get('network_listeners', []))} Active Listeners)]",
+                f"  Firewall Shield Status : {self.specs.get('firewall_shield_status', 'Unknown')}",
+                f"  Exposed LAN Ports      : {self.specs.get('exposed_ports_count', 0)}",
+            ])
+            for l in self.specs.get("network_listeners", []):
+                lines.append(f"  • Port {l['port']:<5} ({l['ip']}) | PID {l['pid']:<5} ({l['process_name']}) | {l['badge']} | {l['service_desc']}")
+
+            lines.extend(["", f"[4. PENDING WINDOWS OS UPDATES ({len(self.windows_updates)})]"])
             for wu in self.windows_updates or ["None pending"]:
                 lines.append(f"  • {wu}")
 
-            lines.extend(["", f"[4. SOFTWARE UPDATES STATUS & TRUST GATE ({len(self.updates_list)})]"])
+            lines.extend(["", f"[5. SOFTWARE UPDATES STATUS & TRUST GATE ({len(self.updates_list)})]"])
             for u in self.updates_list:
                 sec_tier = u.get("security", {}).get("tier", "TRUSTED")
                 lines.append(f"  • {u['name']} ({u['id']}): {u['current']} -> {u['available']} [Status: {u['status']} | Trust: {u.get('trust', '🟢 Trusted')} ({sec_tier})]")
 
             if hasattr(self, "ai_inventory") and self.ai_inventory:
-                lines.extend(["", f"[5. DEEP AI SOFTWARE & LOCAL INFERENCE SUITES ({len(self.ai_inventory)})]"])
+                lines.extend(["", f"[6. DEEP AI SOFTWARE & LOCAL INFERENCE SUITES ({len(self.ai_inventory)})]"])
                 for ai in self.ai_inventory:
-                    lines.append(f"  • {ai['name']} ({ai['vendor']}) | Ver: {ai['version']} | {ai['source']} | Status: {ai['update_status']}")
+                    lines.append(f"  • {ai['name']} ({ai['vendor']}) | Ver: {ai['version']} | {ai['source']} | Net: {ai.get('network_status', '⚪ Offline')} | Status: {ai['update_status']}")
 
-            lines.extend(["", f"[6. FULL INSTALLED SOFTWARE INVENTORY ({len(self.installed_apps)})]"])
+            lines.extend(["", f"[7. FULL INSTALLED SOFTWARE INVENTORY ({len(self.installed_apps)})]"])
             for app in self.installed_apps:
                 lines.append(f"  • {app['name']} | Ver: {app['version']} | {app['publisher']} ({app['scope']})")
 
