@@ -76,6 +76,8 @@ def build():
         f"--distpath={str(DIST_DIR)}",
         f"--workpath={str(BUILD_DIR)}",
         f"--specpath={str(APP_DIR)}",
+        "--hidden-import=network_auditor",
+        "--hidden-import=security_auditor",
         str(SCRIPT_PATH),
     ]
 
