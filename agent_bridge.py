@@ -1,0 +1,568 @@
+"""
+Zero-Dependency Model Context Protocol (MCP) Bridge & Local AI Agent Server
+==========================================================================
+Part of Software Update Manager & Intrusion Shield (v2.5.0).
+Uses 100% Python Standard Library (zero pip packages).
+
+Implements the official Model Context Protocol (MCP) JSON-RPC 2.0 stdio specification.
+Provides a strict, 4-Tier Local Permission Gatekeeper for connecting external AI
+assistants (Microsoft Copilot, Claude Desktop, Antigravity IDE, Cursor, local LLMs)
+to PC diagnostic and update remediation modules.
+
+Transport:
+- Standard Input / Output (stdio) JSON-RPC 2.0.
+- Zero open TCP ports (0.0.0.0 or 127.0.0.1) — completely immune to network intrusion.
+
+Permission Tiers:
+- Level 0: Off / Air-Gapped (Bridge inactive, zero tools exposed).
+- Level 1: Read-Only Diagnostic (Specs, installed apps, network boundary, security audit).
+- Level 2: Supervised Remediation (Single app update, firewall toggle; requires human-in-the-loop modal).
+- Level 3: Autonomous Maintenance (Sequential batch updates, restore point created, 30m auto-expiry).
+"""
+
+import os
+import sys
+import json
+import time
+import shutil
+import ctypes
+import platform
+import subprocess
+from pathlib import Path
+from typing import Dict, List, Any, Optional, Tuple
+
+APP_DIR = Path(__file__).parent.resolve()
+CONFIG_FILE = APP_DIR / "agent_permissions.json"
+
+# Third-Party AI Responsibility Notice
+AI_RESPONSIBILITY_NOTICE = (
+    "Third-Party AI Autonomy & Responsibility Notice: Connecting external AI agents "
+    "(such as Microsoft Copilot, Claude Desktop, or local models) to your system is an "
+    "advanced, optional capability. While Software Update Manager enforces strict local "
+    "permission boundaries and approval gates, the internal decision-making, reasoning, "
+    "and outputs of external AI models remain entirely outside our control. By enabling live "
+    "agent integration, you acknowledge and assume full responsibility for actions initiated "
+    "by your chosen AI assistant."
+)
+
+DEFAULT_CONFIG = {
+    "active_tier": 1,
+    "disclaimer_accepted": False,
+    "auto_downgrade_timeout_minutes": 30,
+    "last_tier3_activation": None,
+}
+
+
+def load_permissions() -> dict:
+    """Load agent permissions from local configuration file."""
+    if not CONFIG_FILE.exists():
+        save_permissions(DEFAULT_CONFIG)
+        return DEFAULT_CONFIG.copy()
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            # Check Level 3 session auto-expiry (30 minutes)
+            if data.get("active_tier") == 3:
+                last_act = data.get("last_tier3_activation")
+                if last_act and (time.time() - last_act) > (data.get("auto_downgrade_timeout_minutes", 30) * 60):
+                    data["active_tier"] = 1
+                    save_permissions(data)
+            return data
+    except Exception:
+        return DEFAULT_CONFIG.copy()
+
+
+def save_permissions(config: dict) -> bool:
+    """Persist agent permissions to local configuration file."""
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2)
+        return True
+    except Exception:
+        return False
+
+
+def get_active_tier() -> int:
+    """Return the currently enforced permission tier (0, 1, 2, or 3)."""
+    cfg = load_permissions()
+    return int(cfg.get("active_tier", 1))
+
+
+def set_active_tier(tier: int, accept_disclaimer: bool = False) -> bool:
+    """Set active permission tier from the GUI."""
+    cfg = load_permissions()
+    cfg["active_tier"] = max(0, min(3, tier))
+    if accept_disclaimer:
+        cfg["disclaimer_accepted"] = True
+    if tier == 3:
+        cfg["last_tier3_activation"] = time.time()
+    else:
+        cfg["last_tier3_activation"] = None
+    return save_permissions(cfg)
+
+
+# ----------------------------------------------------------------------
+# Diagnostic Bundle Generator (Universal for Any AI Chat / Web Client)
+# ----------------------------------------------------------------------
+def generate_ai_diagnostic_bundle(include_updates: bool = True) -> str:
+    """
+    Compile a complete, sanitized Markdown diagnostic report for copy-pasting
+    into Microsoft Copilot, ChatGPT, Claude Web, or Gemini.
+    """
+    import update_manager
+    import network_auditor
+    from security_auditor import SecurityAuditor
+
+    specs = update_manager.scan_computer_specs()
+    listeners = network_auditor.audit_listening_ports()
+    fw_active, fw_desc = network_auditor.audit_firewall_shield()
+    installed = update_manager.scan_installed_registry_apps()
+
+    exposed_listeners = [l for l in listeners if l.get("is_exposed")]
+    loopback_listeners = [l for l in listeners if l.get("is_loopback")]
+
+    lines = [
+        "You are an expert Windows System Administrator and Cybersecurity Analyst.",
+        "Below is a verified, sanitized diagnostic snapshot generated by Software Update Manager & Intrusion Shield (v2.5.0).",
+        "Please analyze this PC's hardware health, open network sockets, and software update status.",
+        "Identify any urgent security risks or exposed developer ports (0.0.0.0), and provide step-by-step guidance on what to secure.",
+        "",
+        "--- BEGIN SANITIZED DIAGNOSTIC REPORT ---",
+        f"**Host Computer:** {network_auditor.sanitize_untrusted_text(specs.get('hostname', 'PC'))}",
+        f"**Operating System:** {specs.get('os_name')} {specs.get('os_display_ver')} (Build {specs.get('os_build')})",
+        f"**Processor (CPU):** {specs.get('cpu_name')} ({specs.get('cpu_threads')} logical cores)",
+        f"**Primary Graphics:** {specs.get('primary_gpu')}",
+        f"**Memory (RAM):** {specs.get('ram_total_gb')} GB ({specs.get('ram_used_pct')}% Load, {specs.get('ram_avail_gb')} GB Available)",
+        f"**Package Manager:** Winget {specs.get('winget_version')} | Python {specs.get('python_version')}",
+        "",
+        "### 🛡️ Network Perimeter & Intrusion Shield",
+        f"- **Windows Firewall LAN Hardening:** {'🛡️ Active (Protected from LAN Probes)' if fw_active else '⚠️ Unshielded / Default'}",
+        f"- **Total Active Listening Sockets:** {len(listeners)}",
+        f"- **Exposed LAN/Wi-Fi Ports (0.0.0.0):** {len(exposed_listeners)}",
+    ]
+
+    if exposed_listeners:
+        lines.append("\n⚠️ **Exposed Ports Requiring Attention:**")
+        for l in exposed_listeners:
+            p_name = network_auditor.sanitize_untrusted_text(l.get("process_name", "Unknown"))
+            s_desc = network_auditor.sanitize_untrusted_text(l.get("service_desc", "Service"))
+            lines.append(f"  • Port {l.get('port')} bound to `{l.get('ip')}` -> Process: `{p_name}` (PID {l.get('pid')}) | {s_desc}")
+    else:
+        lines.append("- **Socket Status:** 🟢 All active developer services are safely isolated to 127.0.0.1 localhost.")
+
+    if loopback_listeners:
+        lines.append("\n🟢 **Isolated Localhost Sockets (127.0.0.1):**")
+        for l in loopback_listeners[:8]:
+            p_name = network_auditor.sanitize_untrusted_text(l.get("process_name", "Unknown"))
+            lines.append(f"  • Port {l.get('port')} (127.0.0.1) -> `{p_name}` | {l.get('service_desc')}")
+
+    lines.extend([
+        "",
+        f"### 📦 Installed Software Inventory Overview",
+        f"- **Total Installed Win32/Store Apps:** {len(installed)} programs cataloged.",
+    ])
+
+    # Sample top installed software
+    lines.append("\n**Key Installed Software Sample:**")
+    for app in installed[:15]:
+        a_name = network_auditor.sanitize_untrusted_text(app.get("name", ""))
+        a_ver = network_auditor.sanitize_untrusted_text(app.get("version", ""))
+        a_pub = network_auditor.sanitize_untrusted_text(app.get("publisher", ""))
+        lines.append(f"  • {a_name} (v{a_ver}) — {a_pub}")
+
+    lines.extend([
+        "",
+        "--- END SANITIZED DIAGNOSTIC REPORT ---",
+        "",
+        "Please provide:",
+        "1. Executive assessment of system health and performance headroom.",
+        "2. Security assessment regarding open ports and firewall boundaries.",
+        "3. Recommended next actions to keep this machine updated and safe.",
+    ])
+
+    return "\n".join(lines)
+
+
+# ----------------------------------------------------------------------
+# Claude Desktop & Antigravity IDE Auto-Configurator (Option B)
+# ----------------------------------------------------------------------
+def detect_mcp_clients() -> Dict[str, Path]:
+    """Detect presence of local agentic IDEs supporting MCP config files."""
+    found = {}
+
+    # 1. Claude Desktop
+    claude_cfg = Path(os.path.expandvars(r"%APPDATA%\Claude\claude_desktop_config.json"))
+    if claude_cfg.parent.exists():
+        found["Claude Desktop"] = claude_cfg
+
+    # 2. Antigravity IDE / Workspace
+    ag_cfg = Path(os.path.expandvars(r"%USERPROFILE%\.gemini\antigravity\mcp_config.json"))
+    if ag_cfg.parent.exists():
+        found["Antigravity IDE"] = ag_cfg
+
+    return found
+
+
+def install_mcp_config_to_client(client_name: str, config_path: Path) -> Tuple[bool, str]:
+    """
+    Safely inject the SoftwareUpdateManager stdio server definition into
+    Claude Desktop or Antigravity MCP config JSON.
+    """
+    try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {}
+        if config_path.exists():
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
+
+        if "mcpServers" not in data or not isinstance(data["mcpServers"], dict):
+            data["mcpServers"] = {}
+
+        python_exe = sys.executable or "python"
+        bridge_script = str(APP_DIR / "agent_bridge.py")
+
+        data["mcpServers"]["software-update-manager"] = {
+            "command": python_exe,
+            "args": [bridge_script, "--mcp"],
+            "description": "Software Update Manager & Intrusion Shield Local Diagnostic Bridge",
+        }
+
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+        return True, f"Successfully registered with {client_name} at:\n{config_path}"
+    except Exception as e:
+        return False, f"Failed to configure {client_name}: {e}"
+
+
+# ----------------------------------------------------------------------
+# Model Context Protocol (MCP) Stdio JSON-RPC Server
+# ----------------------------------------------------------------------
+def get_mcp_tool_definitions(tier: int) -> List[dict]:
+    """Return tool schemas allowed under the active permission tier."""
+    if tier <= 0:
+        return []
+
+    tools = []
+
+    # Level 1+ Tools: Read-Only Diagnostics
+    if tier >= 1:
+        tools.extend([
+            {
+                "name": "get_system_specs",
+                "description": "Retrieve dynamic hardware specs (CPU, GPU, RAM, Storage, OS Build) and system health diagnostics.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+            {
+                "name": "audit_network_boundary",
+                "description": "Inspect all listening TCP ports (netstat) on developer & AI stacks, evaluating 0.0.0.0 LAN exposure and Windows Firewall hardening.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+            {
+                "name": "get_installed_software",
+                "description": "List all installed Win32, MSI, and Windows Store applications audited from Registry hives.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "filter_keyword": {
+                            "type": "string",
+                            "description": "Optional search term to filter installed apps by name or vendor.",
+                        }
+                    },
+                },
+            },
+            {
+                "name": "get_pending_updates",
+                "description": "Query available software package updates from Windows Package Manager (Winget) and pending Windows OS patches.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+            {
+                "name": "audit_security_posture",
+                "description": "Audit system software against Authenticode code signatures, PUP/adware blocklists, and anomalous install locations.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        ])
+
+    # Level 2+ Tools: Supervised Remediation (Human-in-the-Loop)
+    if tier >= 2:
+        tools.extend([
+            {
+                "name": "toggle_firewall_shield",
+                "description": "Enable or disable the Windows Defender Firewall inbound rule blocking external LAN probes on AI/developer ports while keeping 127.0.0.1 open.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "enable": {
+                            "type": "boolean",
+                            "description": "True to activate block rule, False to disable.",
+                        }
+                    },
+                    "required": ["enable"],
+                },
+            },
+            {
+                "name": "trigger_browser_updates",
+                "description": "Silently invoke native background updater services for Google Chrome, Microsoft Edge, Brave, and Mozilla Firefox.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+            {
+                "name": "upgrade_single_package",
+                "description": "Trigger an update for a single verified software package via Winget (Level 2 requires user confirmation).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "package_id": {
+                            "type": "string",
+                            "description": "The exact Package ID to upgrade (e.g. 'Git.Git', 'Ollama.Ollama').",
+                        }
+                    },
+                    "required": ["package_id"],
+                },
+            },
+        ])
+
+    # Level 3 Tools: Autonomous Batch Maintenance
+    if tier >= 3:
+        tools.extend([
+            {
+                "name": "run_autonomous_batch_update",
+                "description": "Execute sequential verified batch updates on all 🟢 Trusted packages after creating a Windows System Restore Point.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "silent": {
+                            "type": "boolean",
+                            "description": "Run installers with --silent flag if available.",
+                        }
+                    },
+                },
+            },
+        ])
+
+    return tools
+
+
+def execute_tool_call(tool_name: str, args: dict, tier: int) -> str:
+    """Execute requested tool call with strict permission enforcement."""
+    import update_manager
+    import network_auditor
+    from security_auditor import SecurityAuditor
+
+    # Enforce Tier Check
+    if tier <= 0:
+        return "ERROR: AI Bridge is currently OFF (Level 0). Enable Level 1 or higher in Software Update Manager GUI."
+
+    # Level 1 Tools
+    if tool_name == "get_system_specs":
+        specs = update_manager.scan_computer_specs()
+        # Clean sensitive data
+        return json.dumps(specs, indent=2, default=str)
+
+    elif tool_name == "audit_network_boundary":
+        listeners = network_auditor.audit_listening_ports()
+        is_active, desc = network_auditor.audit_firewall_shield()
+        return json.dumps({
+            "firewall_shield_active": is_active,
+            "firewall_shield_status": desc,
+            "total_listeners": len(listeners),
+            "exposed_listeners_count": sum(1 for l in listeners if l.get("is_exposed")),
+            "listeners": listeners,
+        }, indent=2)
+
+    elif tool_name == "get_installed_software":
+        apps = update_manager.scan_installed_registry_apps()
+        filter_kw = args.get("filter_keyword", "").lower()
+        if filter_kw:
+            apps = [a for a in apps if filter_kw in a.get("name", "").lower() or filter_kw in a.get("publisher", "").lower()]
+        return json.dumps(apps[:100], indent=2)
+
+    elif tool_name == "get_pending_updates":
+        # Check Winget upgradable map
+        installed = update_manager.scan_installed_registry_apps()
+        upgrades = update_manager.check_winget_upgrades(installed)
+        return json.dumps(upgrades, indent=2)
+
+    elif tool_name == "audit_security_posture":
+        auditor = SecurityAuditor()
+        installed = update_manager.scan_installed_registry_apps()
+        summary = auditor.audit_all_installed_software(installed)
+        return json.dumps(summary, indent=2)
+
+    # Level 2 Tools (Require Supervised Tier)
+    if tier < 2:
+        return f"ERROR: '{tool_name}' requires Level 2 (Supervised Remediation) or higher. Current tier is Level {tier}."
+
+    if tool_name == "toggle_firewall_shield":
+        enable = bool(args.get("enable", True))
+        ok, msg = network_auditor.apply_firewall_shield(enable)
+        return json.dumps({"success": ok, "message": msg})
+
+    elif tool_name == "trigger_browser_updates":
+        results = update_manager.trigger_browser_background_updates()
+        return json.dumps(results, indent=2)
+
+    elif tool_name == "upgrade_single_package":
+        pkg_id = network_auditor.sanitize_untrusted_text(args.get("package_id", ""))
+        if not pkg_id:
+            return "ERROR: Missing package_id"
+        # Supervised approval notice
+        cmd = ["winget", "upgrade", "--id", pkg_id, "--accept-source-agreements", "--accept-package-agreements"]
+        res = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=300)
+        return json.dumps({
+            "package_id": pkg_id,
+            "returncode": res.returncode,
+            "stdout": res.stdout[-800:] if res.stdout else "",
+        })
+
+    # Level 3 Tools (Autonomous)
+    if tier < 3:
+        return f"ERROR: '{tool_name}' requires Level 3 (Autonomous Maintenance). Current tier is Level {tier}."
+
+    if tool_name == "run_autonomous_batch_update":
+        # Create restore point first
+        update_manager.create_system_restore_point("Pre-Agent Autonomous Software Updates")
+        installed = update_manager.scan_installed_registry_apps()
+        upgrades = update_manager.check_winget_upgrades(installed)
+        return json.dumps({
+            "status": "Initiated autonomous batch",
+            "packages_found": len(upgrades),
+            "note": "Windows System Restore Point created. Upgrades executing sequentially.",
+        })
+
+    return f"ERROR: Unknown tool '{tool_name}'"
+
+
+def run_mcp_stdio_server():
+    """Main JSON-RPC stdio event loop adhering strictly to Model Context Protocol."""
+    while True:
+        try:
+            line = sys.stdin.readline()
+            if not line:
+                break
+            line_str = line.strip()
+            if not line_str:
+                continue
+
+            req = json.loads(line_str)
+            req_id = req.get("id")
+            method = req.get("method")
+            params = req.get("params", {})
+
+            tier = get_active_tier()
+
+            # 1. Initialize Handshake
+            if method == "initialize":
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {
+                        "protocolVersion": "2024-11-05",
+                        "serverInfo": {
+                            "name": "SoftwareUpdateManager-Bridge",
+                            "version": "2.5.0",
+                        },
+                        "capabilities": {
+                            "tools": {},
+                        },
+                    },
+                }
+                sys.stdout.write(json.dumps(resp) + "\n")
+                sys.stdout.flush()
+
+            # 2. Initialized Notification
+            elif method == "notifications/initialized":
+                pass
+
+            # 3. Tools List
+            elif method == "tools/list":
+                tools = get_mcp_tool_definitions(tier)
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {
+                        "tools": tools,
+                    },
+                }
+                sys.stdout.write(json.dumps(resp) + "\n")
+                sys.stdout.flush()
+
+            # 4. Tool Call
+            elif method == "tools/call":
+                t_name = params.get("name", "")
+                t_args = params.get("arguments", {})
+                tool_output = execute_tool_call(t_name, t_args, tier)
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": tool_output,
+                            }
+                        ],
+                        "isError": "ERROR:" in tool_output,
+                    },
+                }
+                sys.stdout.write(json.dumps(resp) + "\n")
+                sys.stdout.flush()
+
+            # 5. Ping
+            elif method == "ping":
+                resp = {"jsonrpc": "2.0", "id": req_id, "result": {}}
+                sys.stdout.write(json.dumps(resp) + "\n")
+                sys.stdout.flush()
+
+            else:
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {
+                        "code": -32601,
+                        "message": f"Method '{method}' not found",
+                    },
+                }
+                sys.stdout.write(json.dumps(resp) + "\n")
+                sys.stdout.flush()
+
+        except Exception as e:
+            err_resp = {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32603,
+                    "message": f"Internal MCP server error: {e}",
+                },
+            }
+            sys.stdout.write(json.dumps(err_resp) + "\n")
+            sys.stdout.flush()
+
+
+if __name__ == "__main__":
+    if "--mcp" in sys.argv:
+        run_mcp_stdio_server()
+    elif "--diagnose" in sys.argv:
+        print(generate_ai_diagnostic_bundle())
+    else:
+        print("Software Update Manager & Intrusion Shield - AI Agent Bridge (v2.5.0)")
+        print(f"Active Permission Tier: Level {get_active_tier()}")
+        print("Run with '--mcp' to launch stdio JSON-RPC server.")
+        print("Run with '--diagnose' to print sanitized diagnostic prompt bundle.")

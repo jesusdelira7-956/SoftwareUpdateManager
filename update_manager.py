@@ -35,9 +35,10 @@ from typing import Optional, Dict, List, Tuple, Any
 
 from security_auditor import SecurityAuditor
 import network_auditor
+import agent_bridge
 
 APP_NAME = "Software Update Manager"
-APP_VERSION = "2.4.0"
+APP_VERSION = "2.5.0"
 APP_DIR = Path(__file__).parent.resolve()
 LOG_FILE = APP_DIR / "update_history.log"
 DONATION_URL = "https://buymeacoffee.com/JesseInTheLab"
@@ -1580,6 +1581,15 @@ class UpdateManagerApp(tk.Tk):
         )
         lbl_mission.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
+        btn_ai_diag = tk.Button(
+            self.mission_frame,
+            text="🤖 AI Diagnose",
+            command=self.open_ai_diagnose_dialog,
+            bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff",
+            font=("Segoe UI", 8, "bold"), relief="flat", padx=8, pady=2, cursor="hand2"
+        )
+        btn_ai_diag.pack(side=tk.RIGHT, padx=3)
+
         btn_ai_shield = tk.Button(
             self.mission_frame,
             text="🛡️ Intrusion & AI Shield",
@@ -1864,6 +1874,11 @@ class UpdateManagerApp(tk.Tk):
         )
         self.btn_ai_audit.pack(side=tk.LEFT, padx=6)
 
+        self.btn_ai_diagnose = ttk.Button(
+            btn_row, text="🤖 AI Diagnose", style="Secondary.TButton", command=self.open_ai_diagnose_dialog
+        )
+        self.btn_ai_diagnose.pack(side=tk.LEFT, padx=6)
+
         # Silent Mode Checkbox
         chk_silent = tk.Checkbutton(
             btn_row,
@@ -2101,7 +2116,28 @@ Proactively protects your computer against autonomous network scanning platforms
     Inside the "🤖 AI Suites" hub, click "🛡️ Harden Firewall (Block LAN Probes)" to toggle a native Windows Defender Firewall inbound block rule (SoftwareUpdateManager_Block_DevPorts_LAN) that blocks incoming LAN probes on AI/developer ports while preserving 100% full local loopback (127.0.0.1) connectivity.
 
 --------------------------------------------------------------------------------
-5. SPECIALIZED AI & DEV SUITES, BROWSERS & MICROSOFT STORE
+5. AI AGENT INTEGRATION, PERMISSIONS & SAFETY TUTORIALS (v2.5)
+--------------------------------------------------------------------------------
+Software Update Manager allows you to connect AI assistants (Microsoft Copilot, Claude Desktop, Antigravity IDE, Cursor, local LLMs) via a 4-Tier Permission Model and zero-port stdio MCP Server.
+
+⚠️ Third-Party AI Autonomy & Responsibility Notice:
+Connecting external AI agents to your system is an advanced, optional capability. While Software Update Manager enforces strict local permission boundaries and approval gates, the internal decision-making, reasoning, and outputs of third-party AI models remain entirely outside our control. By enabling live agent integration, you acknowledge and assume full responsibility for actions initiated by your chosen AI assistant.
+
+🛡️ Safe Quick-Start Checklist:
+  1. Start at Level 1 (Read-Only Diagnostic): Leave the permission tier on Level 1 for your first run. The AI can audit specs, updates, and open ports without altering any files.
+  2. Use Local STDIO (Zero Open Ports): Connect desktop clients via local stdio (sys.stdin/sys.stdout) rather than opening HTTP ports on your LAN.
+  3. Review Every Level 2 Approval Prompt: Always read the target app name and command before clicking Approve. Never approve actions on unverified packages.
+  4. Create a Restore Point First: Auto-create a Windows System Restore Point before Level 3 autonomous batches.
+
+🎥 Curated Video Tutorials & Learning:
+  • Easy Connect Claude Desktop to MCP (Windows): https://www.youtube.com/watch?v=A151Nk_nN_U
+  • Securing the MCP Server (What You Need to Know): https://www.youtube.com/watch?v=KYWr454hGF0
+  • Least Privilege for AI Agents (Shrinking Blast Radius): https://www.youtube.com/watch?v=4HiuiYIJRTU
+  • Official MCP Security Best Practices: https://modelcontextprotocol.io/docs/draft/tutorials/security/security_best_practices
+  • Full Safety Guide: Read AGENT_SAFETY.md in the application directory.
+
+--------------------------------------------------------------------------------
+6. SPECIALIZED AI & DEV SUITES, BROWSERS & MICROSOFT STORE
 --------------------------------------------------------------------------------
   • 🤖 AI & Dev Tools:
     Click the "🤖 AI & Dev Tools" button in the filter toolbar to instantly select and prioritize updates for AI assistants and developer suites (Antigravity IDE, Cursor, VS Code, Android Studio, GitHub Copilot, Ollama, LM Studio, Pinokio, Docker Desktop, etc.).
@@ -2111,7 +2147,7 @@ Proactively protects your computer against autonomous network scanning platforms
     Click "🛍️ Store Apps" or use the top banner to trigger the Windows Store background update service (InstallService) and launch the Microsoft Store directly to "Updates & downloads" where queued updates (Notepad, Paint, Xbox, Snipping Tool, HP) can be monitored and updated.
 
 --------------------------------------------------------------------------------
-6. HOW TO UPDATE YOUR SOFTWARE
+7. HOW TO UPDATE YOUR SOFTWARE
 --------------------------------------------------------------------------------
   • Update Everything Sequentially:
     Click "⚡ Push All Updates (One-by-One)". The app downloads and installs updates strictly one at a time so installers never collide or lock the same system files.
@@ -2123,7 +2159,7 @@ Proactively protects your computer against autonomous network scanning platforms
     Click "⏹ Stop Batch" at any time during updates; the app will safely finish the current installer and stop before starting the next one.
 
 --------------------------------------------------------------------------------
-7. MEANING OF UPDATE STATUS BADGES
+8. MEANING OF UPDATE STATUS BADGES
 --------------------------------------------------------------------------------
   • Pending Update (Blue)     : A newer version is available and ready to install.
   • Installing... (Amber)     : Winget is currently downloading and running the installer.
@@ -2133,7 +2169,7 @@ Proactively protects your computer against autonomous network scanning platforms
   • ✗ Failed                  : The installer returned an error code. Check the live log for details.
 
 --------------------------------------------------------------------------------
-8. WHY ADMINISTRATOR MODE IS ENABLED AT STARTUP
+9. WHY ADMINISTRATOR MODE IS ENABLED AT STARTUP
 --------------------------------------------------------------------------------
 Many system applications (such as Visual C++ Redistributables, .NET Runtimes, VLC, 7-Zip, and Hardware Drivers) require Administrator rights to update files in "C:\\Program Files".
 By requesting Administrator elevation once when the app starts (shown by the green "🛡️ Administrator" badge in the top-right), all updates run smoothly without interrupting you with repeated UAC prompts.
@@ -2251,6 +2287,316 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             self.lbl_status.config(text=f"🤖 Selected {len(matched)} AI & Developer Suite update(s).")
             self.log_ui(f"[FILTER] Highlighted {len(matched)} AI / Developer tool(s) for update.")
         self.open_ai_dev_hub()
+
+    def open_ai_diagnose_dialog(self):
+        """Open the Universal AI PC Diagnostic & Local Agent Bridge window."""
+        win = tk.Toplevel(self)
+        win.title("🤖 AI PC Diagnose & Local Agent Bridge — Software Update Manager")
+        win.geometry("960x680")
+        win.minsize(860, 560)
+        win.configure(bg="#0b1329")
+        win.transient(self)
+
+        # Center over parent
+        try:
+            x = self.winfo_rootx() + (self.winfo_width() // 2) - 480
+            y = self.winfo_rooty() + (self.winfo_height() // 2) - 340
+            win.geometry(f"+{max(10, x)}+{max(10, y)}")
+        except Exception:
+            pass
+
+        # Top Banner
+        header_frame = tk.Frame(win, bg="#131c38", padx=16, pady=12, highlightbackground="#3b82f6", highlightthickness=1)
+        header_frame.pack(fill=tk.X, padx=14, pady=(12, 8))
+
+        tk.Label(
+            header_frame,
+            text="🤖 AI PC Diagnose & Local Agent Bridge (v2.5)",
+            bg="#131c38", fg="#60a5fa", font=("Segoe UI", 13, "bold"), anchor="w"
+        ).pack(anchor="w")
+
+        tk.Label(
+            header_frame,
+            text="Generate sanitized diagnostic prompt bundles for any web AI, or connect desktop agents (Claude, Antigravity) via zero-port stdio MCP.",
+            bg="#131c38", fg="#94a3b8", font=("Segoe UI", 9), anchor="w"
+        ).pack(anchor="w", pady=(2, 0))
+
+        # Main scrollable canvas / container
+        container = tk.Frame(win, bg="#0b1329", padx=14)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        # Section 1: Option A — Universal 1-Click Diagnostic Bundle
+        card_a = tk.Frame(container, bg="#111827", padx=14, pady=12, highlightbackground="#1f2937", highlightthickness=1)
+        card_a.pack(fill=tk.X, pady=6)
+
+        tk.Label(
+            card_a, text="📋 Option A: 1-Click AI Diagnostic Bundle (Zero Setup — Any Web AI)",
+            bg="#111827", fg="#38bdf8", font=("Segoe UI", 10, "bold"), anchor="w"
+        ).pack(anchor="w")
+
+        tk.Label(
+            card_a,
+            text="Generates an injection-hardened diagnostic summary (Specs, Listening Sockets, Updates) and copies it to your clipboard with an expert diagnostic prompt.",
+            bg="#111827", fg="#cbd5e1", font=("Segoe UI", 9), justify=tk.LEFT, wraplength=880
+        ).pack(anchor="w", pady=(2, 8))
+
+        btn_row_a = tk.Frame(card_a, bg="#111827")
+        btn_row_a.pack(fill=tk.X)
+
+        status_lbl_a = tk.Label(card_a, text="", bg="#111827", fg="#34d399", font=("Segoe UI", 9, "bold"))
+
+        def _copy_bundle():
+            bundle = agent_bridge.generate_ai_diagnostic_bundle()
+            win.clipboard_clear()
+            win.clipboard_append(bundle)
+            status_lbl_a.config(text="✓ Sanitized AI Diagnostic Prompt copied to clipboard! Ready to paste into Copilot, Claude, or ChatGPT.")
+            status_lbl_a.pack(anchor="w", pady=(6, 0))
+            self.log_ui("[AI DIAGNOSE] Diagnostic prompt bundle copied to clipboard.")
+
+        tk.Button(
+            btn_row_a, text="📋 Copy AI Diagnostic Bundle", command=_copy_bundle,
+            bg="#0284c7", fg="#ffffff", activebackground="#0369a1", activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        tk.Button(
+            btn_row_a, text="🌐 Open Copilot in Edge", command=lambda: webbrowser.open("https://copilot.microsoft.com"),
+            bg="#1e293b", fg="#e2e8f0", activebackground="#334155", activeforeground="#ffffff",
+            font=("Segoe UI", 9), relief="flat", padx=10, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=4)
+
+        tk.Button(
+            btn_row_a, text="🌐 Open Claude Web", command=lambda: webbrowser.open("https://claude.ai"),
+            bg="#1e293b", fg="#e2e8f0", activebackground="#334155", activeforeground="#ffffff",
+            font=("Segoe UI", 9), relief="flat", padx=10, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=4)
+
+        tk.Button(
+            btn_row_a, text="🌐 Open ChatGPT", command=lambda: webbrowser.open("https://chatgpt.com"),
+            bg="#1e293b", fg="#e2e8f0", activebackground="#334155", activeforeground="#ffffff",
+            font=("Segoe UI", 9), relief="flat", padx=10, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=4)
+
+        # Section 2: Option B — Local Stdio MCP Bridge
+        card_b = tk.Frame(container, bg="#111827", padx=14, pady=12, highlightbackground="#1f2937", highlightthickness=1)
+        card_b.pack(fill=tk.X, pady=6)
+
+        tk.Label(
+            card_b, text="⚡ Option B: Local Stdio MCP Bridge (Claude Desktop, Antigravity, Cursor)",
+            bg="#111827", fg="#818cf8", font=("Segoe UI", 10, "bold"), anchor="w"
+        ).pack(anchor="w")
+
+        tk.Label(
+            card_b,
+            text="Exposes verified diagnostic and update tools to agentic IDEs via JSON-RPC stdio. 0 open network ports, 0 MB GPU VRAM overhead.",
+            bg="#111827", fg="#cbd5e1", font=("Segoe UI", 9), justify=tk.LEFT, wraplength=880
+        ).pack(anchor="w", pady=(2, 8))
+
+        btn_row_b = tk.Frame(card_b, bg="#111827")
+        btn_row_b.pack(fill=tk.X)
+
+        status_lbl_b = tk.Label(card_b, text="", bg="#111827", fg="#34d399", font=("Segoe UI", 9))
+
+        def _auto_configure_mcp():
+            clients = agent_bridge.detect_mcp_clients()
+            if not clients:
+                messagebox.showinfo(
+                    "No Supported MCP Clients Found",
+                    "Could not find configuration folders for Claude Desktop or Antigravity IDE.\n\n"
+                    "You can still use 'Copy MCP Config JSON' to paste the configuration manually into any agentic tool.",
+                    parent=win
+                )
+                return
+
+            c_names = ", ".join(clients.keys())
+            confirm = messagebox.askyesno(
+                "Configure MCP Clients?",
+                f"Detected local MCP environments: {c_names}\n\n"
+                "Would you like Software Update Manager to automatically register its stdio bridge in their configuration files?",
+                parent=win
+            )
+            if confirm:
+                msgs = []
+                for name, path in clients.items():
+                    ok, res = agent_bridge.install_mcp_config_to_client(name, path)
+                    msgs.append(f"• {name}: {'✓ Done' if ok else '✗ Failed'} ({res})")
+                messagebox.showinfo("MCP Auto-Configuration Result", "\n\n".join(msgs), parent=win)
+                status_lbl_b.config(text=f"✓ Auto-configured: {c_names}")
+                status_lbl_b.pack(anchor="w", pady=(6, 0))
+
+        def _copy_mcp_json():
+            py_exe = sys.executable or "python"
+            bridge_path = str(APP_DIR / "agent_bridge.py")
+            mcp_snippet = json.dumps({
+                "mcpServers": {
+                    "software-update-manager": {
+                        "command": py_exe,
+                        "args": [bridge_path, "--mcp"],
+                        "description": "Software Update Manager & Intrusion Shield Stdio MCP Server"
+                    }
+                }
+            }, indent=2)
+            win.clipboard_clear()
+            win.clipboard_append(mcp_snippet)
+            status_lbl_b.config(text="✓ MCP Stdio JSON configuration copied to clipboard!")
+            status_lbl_b.pack(anchor="w", pady=(6, 0))
+
+        tk.Button(
+            btn_row_b, text="⚡ Auto-Configure Detected MCP Clients", command=_auto_configure_mcp,
+            bg="#4f46e5", fg="#ffffff", activebackground="#4338ca", activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        tk.Button(
+            btn_row_b, text="📋 Copy MCP Config JSON", command=_copy_mcp_json,
+            bg="#1e293b", fg="#cbd5e1", activebackground="#334155", activeforeground="#ffffff",
+            font=("Segoe UI", 9), relief="flat", padx=10, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=4)
+
+        # Section 3: 4-Tier Permission Gatekeeper
+        card_c = tk.Frame(container, bg="#111827", padx=14, pady=12, highlightbackground="#1f2937", highlightthickness=1)
+        card_c.pack(fill=tk.X, pady=6)
+
+        tk.Label(
+            card_c, text="🛡️ 4-Tier Local Agent Permission Gatekeeper",
+            bg="#111827", fg="#f59e0b", font=("Segoe UI", 10, "bold"), anchor="w"
+        ).pack(anchor="w")
+
+        tk.Label(
+            card_c,
+            text="Controls the tool execution boundary. Enforced strictly at the local IPC layer — external AI agents cannot elevate their own tier.",
+            bg="#111827", fg="#94a3b8", font=("Segoe UI", 8), anchor="w"
+        ).pack(anchor="w", pady=(1, 6))
+
+        current_tier = agent_bridge.get_active_tier()
+        tier_var = tk.IntVar(value=current_tier)
+
+        tiers_info = [
+            (0, "Level 0: Off / Air-Gapped", "Bridge completely disabled. Zero IPC responses."),
+            (1, "Level 1: Read-Only Diagnostic (Recommended)", "Hard read-only whitelist (Specs, Ports, Updates). Prompt-injection sanitized."),
+            (2, "Level 2: Supervised Remediation", "Allows single app updates & firewall toggling. Every write requires interactive user popup."),
+            (3, "Level 3: Autonomous Maintenance", "Sequential batch updates. Auto-creates System Restore Point. Auto-expires after 30 mins."),
+        ]
+
+        def _on_tier_change():
+            val = tier_var.get()
+            if val >= 2:
+                # Require explicit disclaimer acceptance
+                ans = messagebox.askyesno(
+                    "Enable Mutating AI Agent Permissions?",
+                    f"You have selected Level {val}.\n\n"
+                    "⚠️ Third-Party AI Autonomy & Responsibility Notice:\n"
+                    "Connecting external AI agents (such as Copilot, Claude, or local models) to perform system "
+                    "modifications is an optional, advanced capability. While Software Update Manager enforces strict "
+                    "local permission boundaries and approval gates, the internal decision-making, reasoning, and "
+                    "outputs of third-party AI models remain entirely outside our control.\n\n"
+                    "Do you understand and accept full responsibility for actions initiated by your chosen AI assistant?",
+                    parent=win
+                )
+                if not ans:
+                    tier_var.set(1)
+                    agent_bridge.set_active_tier(1)
+                    return
+            agent_bridge.set_active_tier(val, accept_disclaimer=(val >= 2))
+            self.log_ui(f"[AI PERMISSION] Agent permission tier updated to Level {val}.")
+
+        for t_val, t_name, t_desc in tiers_info:
+            r_frame = tk.Frame(card_c, bg="#111827")
+            r_frame.pack(fill=tk.X, pady=2)
+            rb = tk.Radiobutton(
+                r_frame, text=t_name, variable=tier_var, value=t_val, command=_on_tier_change,
+                bg="#111827", fg="#f8fafc", selectcolor="#0f172a", activebackground="#111827",
+                activeforeground="#ffffff", font=("Segoe UI", 9, "bold" if t_val == 1 else "normal")
+            )
+            rb.pack(side=tk.LEFT)
+            tk.Label(r_frame, text=f"— {t_desc}", bg="#111827", fg="#94a3b8", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=6)
+
+        # Section 4: Responsibility Notice & Safe Quick-Start Guide
+        notice_box = tk.Frame(container, bg="#271c08", highlightbackground="#d97706", highlightthickness=1, padx=14, pady=10)
+        notice_box.pack(fill=tk.X, pady=6)
+
+        tk.Label(
+            notice_box,
+            text="⚠️ Third-Party AI Autonomy & Responsibility Notice:",
+            bg="#271c08", fg="#fde047", font=("Segoe UI", 9, "bold"), anchor="w"
+        ).pack(anchor="w")
+
+        tk.Label(
+            notice_box,
+            text=agent_bridge.AI_RESPONSIBILITY_NOTICE,
+            bg="#271c08", fg="#fef08a", font=("Segoe UI", 8), justify=tk.LEFT, wraplength=880
+        ).pack(anchor="w", pady=(2, 6))
+
+        tk.Label(
+            notice_box,
+            text="🛡️ Safe Quick-Start Checklist:\n"
+                 "• 1. Start at Level 1 (Read-Only): Verify AI can inspect specs and open ports before granting any write rights.\n"
+                 "• 2. Use Local STDIO (Zero Open Ports): Connect via stdin/stdout pipes; never expose an unauthenticated HTTP port.\n"
+                 "• 3. Review Every Level 2 Popup: Inspect target app names and commands carefully before clicking Approve.\n"
+                 "• 4. Create a Restore Point First: Ensure rollback capability before running batch updates.",
+            bg="#271c08", fg="#cbd5e1", font=("Segoe UI", 8), justify=tk.LEFT, wraplength=880
+        ).pack(anchor="w", pady=(2, 6))
+
+        # Video tutorials and documentation button bar
+        video_bar = tk.Frame(notice_box, bg="#271c08")
+        video_bar.pack(fill=tk.X, pady=(4, 0))
+
+        tk.Label(
+            video_bar, text="🎥 Tutorials & Guides:", bg="#271c08", fg="#fde047", font=("Segoe UI", 8, "bold")
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        tk.Button(
+            video_bar, text="🎥 Connect Claude to MCP (9m)",
+            command=lambda: webbrowser.open("https://www.youtube.com/watch?v=A151Nk_nN_U"),
+            bg="#451a03", fg="#fde047", activebackground="#78350f", activeforeground="#ffffff",
+            font=("Segoe UI", 8), relief="flat", padx=6, pady=2, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=3)
+
+        tk.Button(
+            video_bar, text="🎥 Securing MCP Servers",
+            command=lambda: webbrowser.open("https://www.youtube.com/watch?v=KYWr454hGF0"),
+            bg="#451a03", fg="#fde047", activebackground="#78350f", activeforeground="#ffffff",
+            font=("Segoe UI", 8), relief="flat", padx=6, pady=2, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=3)
+
+        tk.Button(
+            video_bar, text="🎥 Least Privilege for AI (7m)",
+            command=lambda: webbrowser.open("https://www.youtube.com/watch?v=4HiuiYIJRTU"),
+            bg="#451a03", fg="#fde047", activebackground="#78350f", activeforeground="#ffffff",
+            font=("Segoe UI", 8), relief="flat", padx=6, pady=2, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=3)
+
+        tk.Button(
+            video_bar, text="📖 Best Practices Guide",
+            command=lambda: webbrowser.open("https://modelcontextprotocol.io/docs/draft/tutorials/security/security_best_practices"),
+            bg="#1e293b", fg="#93c5fd", activebackground="#334155", activeforeground="#ffffff",
+            font=("Segoe UI", 8), relief="flat", padx=6, pady=2, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=3)
+
+        def _open_agent_safety_doc():
+            p = APP_DIR / "AGENT_SAFETY.md"
+            if p.exists():
+                try:
+                    os.startfile(p)
+                    return
+                except Exception:
+                    pass
+            webbrowser.open("https://github.com/jesusdelira7-956/SoftwareUpdateManager/blob/main/AGENT_SAFETY.md")
+
+        tk.Button(
+            video_bar, text="📄 AGENT_SAFETY.md",
+            command=_open_agent_safety_doc,
+            bg="#064e3b", fg="#6ee7b7", activebackground="#047857", activeforeground="#ffffff",
+            font=("Segoe UI", 8, "bold"), relief="flat", padx=6, pady=2, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=3)
+
+        # Bottom Close Button
+        btn_close_frame = tk.Frame(win, bg="#0b1329", padx=14, pady=8)
+        btn_close_frame.pack(fill=tk.X)
+        tk.Button(
+            btn_close_frame, text="Close", command=win.destroy,
+            bg="#1e293b", fg="#cbd5e1", font=("Segoe UI", 9), relief="flat", padx=14, pady=4, cursor="hand2"
+        ).pack(side=tk.RIGHT)
 
     def open_ai_dev_hub(self):
         """Open the Deep AI & Inference Suite Auditor window."""

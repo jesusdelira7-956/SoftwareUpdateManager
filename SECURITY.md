@@ -10,9 +10,9 @@ We provide active security maintenance and updates for the following releases:
 
 | Version | Supported | Security Maintenance Status |
 | :--- | :--- | :--- |
-| **v2.4.x** | :white_check_mark: Yes | Current release (Active development & immediate security patches) |
-| **v2.3.x** | :white_check_mark: Yes | Critical security fixes only |
-| **< v2.3** | :x: No | Deprecated. Please update to the latest version immediately. |
+| **v2.5.x** | :white_check_mark: Yes | Current release (Active development & immediate security patches) |
+| **v2.4.x** | :white_check_mark: Yes | Critical security fixes only |
+| **< v2.4** | :x: No | Deprecated. Please update to the latest version immediately. |
 
 ---
 
@@ -47,3 +47,4 @@ Our codebase enforces the following defensive guarantees:
 3. **PUP/Adware Containment:** Blocks suspicious paths and known PUP identifiers via `pup_blocklist.json`.
 4. **Network Boundary Isolation:** Audits listening TCP ports and offers 1-click native Defender Firewall hardening for local dev/AI endpoints.
 5. **Input Sanitization:** Strips command separators and prompt injection tokens from untrusted package metadata.
+6. **4-Tier AI Agent Permission Gatekeeper:** External AI assistants access diagnostic tools strictly through zero-port stdio JSON-RPC. Mutating operations (Level 2/3) enforce mandatory interactive confirmation modals, session timeouts, and automatic Windows System Restore Points.

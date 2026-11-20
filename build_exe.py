@@ -78,6 +78,7 @@ def build():
         f"--specpath={str(APP_DIR)}",
         "--hidden-import=network_auditor",
         "--hidden-import=security_auditor",
+        "--hidden-import=agent_bridge",
         str(SCRIPT_PATH),
     ]
 
