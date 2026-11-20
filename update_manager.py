@@ -1314,6 +1314,115 @@ class RestorePointConfirmDialog(tk.Toplevel):
 
 
 # =====================================================================
+# REUSABLE COLLAPSIBLE ACCORDION PANE (OBSIDIAN-SLATE THEME)
+# =====================================================================
+class CollapsiblePane(tk.Frame):
+    """
+    Reusable Obsidian-Slate Collapsible Accordion Panel (▾ expanded / ▸ collapsed)
+    with dynamic <Configure> label wraplength support to prevent horizontal text clipping.
+    """
+    def __init__(
+        self,
+        parent,
+        title: str,
+        subtitle: str = "",
+        expanded: bool = True,
+        accent_fg: str = "#38bdf8",
+        bg_card: str = "#111827",
+        border_col: str = "#2a3441",
+    ):
+        super().__init__(parent, bg=bg_card, highlightbackground=border_col, highlightthickness=1)
+        self._expanded = expanded
+        self._bg_card = bg_card
+        self._header_bg = "#172033"
+        self._header_hover = "#1e293b"
+
+        self.header = tk.Frame(self, bg=self._header_bg, padx=12, pady=8, cursor="hand2")
+        self.header.pack(fill=tk.X)
+
+        self.arrow_lbl = tk.Label(
+            self.header,
+            text="▾" if expanded else "▸",
+            bg=self._header_bg,
+            fg=accent_fg,
+            font=("Segoe UI", 10, "bold"),
+            cursor="hand2",
+        )
+        self.arrow_lbl.pack(side=tk.LEFT, padx=(0, 6))
+
+        self.title_lbl = tk.Label(
+            self.header,
+            text=title,
+            bg=self._header_bg,
+            fg=accent_fg,
+            font=("Segoe UI", 10, "bold"),
+            anchor="w",
+            cursor="hand2",
+        )
+        self.title_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.state_lbl = tk.Label(
+            self.header,
+            text="Collapse" if expanded else "Expand",
+            bg=self._header_bg,
+            fg="#64748b",
+            font=("Segoe UI", 8),
+            cursor="hand2",
+        )
+        self.state_lbl.pack(side=tk.RIGHT, padx=(6, 0))
+
+        self.content = tk.Frame(self, bg=bg_card, padx=12, pady=10)
+        if expanded:
+            self.content.pack(fill=tk.X)
+
+        if subtitle:
+            self.sub_lbl = tk.Label(
+                self.content,
+                text=subtitle,
+                bg=bg_card,
+                fg="#cbd5e1",
+                font=("Segoe UI", 9),
+                justify=tk.LEFT,
+                anchor="w",
+            )
+            self.sub_lbl.pack(fill=tk.X, anchor="w", pady=(0, 8))
+            self.bind_responsive_wrap(self.sub_lbl)
+
+        for w in (self.header, self.arrow_lbl, self.title_lbl, self.state_lbl):
+            w.bind("<Button-1>", self.toggle)
+            w.bind("<Enter>", self._on_enter)
+            w.bind("<Leave>", self._on_leave)
+
+    def _on_enter(self, _e=None):
+        for w in (self.header, self.arrow_lbl, self.title_lbl, self.state_lbl):
+            w.configure(bg=self._header_hover)
+
+    def _on_leave(self, _e=None):
+        for w in (self.header, self.arrow_lbl, self.title_lbl, self.state_lbl):
+            w.configure(bg=self._header_bg)
+
+    def toggle(self, _e=None):
+        self._expanded = not self._expanded
+        if self._expanded:
+            self.arrow_lbl.configure(text="▾")
+            self.state_lbl.configure(text="Collapse")
+            self.content.pack(fill=tk.X)
+        else:
+            self.arrow_lbl.configure(text="▸")
+            self.state_lbl.configure(text="Expand")
+            self.content.pack_forget()
+        self.event_generate("<<AccordionToggled>>")
+
+    @staticmethod
+    def bind_responsive_wrap(label_widget: tk.Label, min_wrap: int = 240, pad: int = 16):
+        """Dynamically adjust label wraplength on <Configure> so text never clips horizontally."""
+        def _on_cfg(event):
+            new_w = max(min_wrap, event.width - pad)
+            label_widget.configure(wraplength=new_w)
+        label_widget.bind("<Configure>", _on_cfg)
+
+
+# =====================================================================
 # MAIN TKINTER APPLICATION
 # =====================================================================
 class UpdateManagerApp(tk.Tk):
@@ -1376,7 +1485,9 @@ class UpdateManagerApp(tk.Tk):
         self.inv_search_var = tk.StringVar()
         self.inv_search_var.trace_add("write", lambda *_: self._refresh_inventory_tree())
         self.silent_mode_var = tk.BooleanVar(value=False)
+        self.restore_point_var = tk.BooleanVar(value=True)
         self.include_unverified_var = tk.BooleanVar(value=False)
+        self.agent_tier_var = tk.IntVar(value=agent_bridge.get_active_tier())
 
         # Pre-Update Security & Trust Gate
         self.security_auditor = SecurityAuditor()
@@ -1398,7 +1509,7 @@ class UpdateManagerApp(tk.Tk):
         self.bg_color = "#0f172a"
         self.card_bg = "#1e293b"
         self.card_alt = "#172033"
-        self.border_color = "#334155"
+        self.border_color = "#2a3441"
         self.text_color = "#f8fafc"
         self.text_muted = "#94a3b8"
         self.accent_color = "#0284c7"
@@ -1445,6 +1556,56 @@ class UpdateManagerApp(tk.Tk):
         style.configure("TPanedwindow", background=self.bg_color)
         style.configure("Sash", sashthickness=6, gripcount=14, background="#334155")
 
+    def _get_tier_short_label(self, tier_val: int) -> str:
+        labels = {
+            0: "🤖 AI Agent: Level 0 (Off) ▾",
+            1: "🤖 AI Agent: Level 1 (Read-Only) ▾",
+            2: "🤖 AI Agent: Level 2 (Supervised) ▾",
+            3: "🤖 AI Agent: Level 3 (Autonomous) ▾",
+        }
+        return labels.get(tier_val, "🤖 AI Agent: Level 1 (Read-Only) ▾")
+
+    def _set_agent_permission_tier(self, new_tier: int):
+        """Centralized gatekeeper for changing AI Agent Permission Tier across Header & AI Tab."""
+        if new_tier >= 2:
+            ans = messagebox.askyesno(
+                "Enable Mutating AI Agent Permissions?",
+                f"You have selected Level {new_tier}.\n\n"
+                "⚠️ Third-Party AI Autonomy & Responsibility Notice:\n"
+                "Connecting external AI agents (such as Copilot, Claude, or local models) to perform system "
+                "modifications is an optional, advanced capability. While Software Update Manager enforces strict "
+                "local permission boundaries and approval gates, the internal decision-making, reasoning, and "
+                "outputs of third-party AI models remain entirely outside our control.\n\n"
+                "Do you understand and accept full responsibility for actions initiated by your chosen AI assistant?",
+                parent=self,
+            )
+            if not ans:
+                new_tier = 1
+
+        self.agent_tier_var.set(new_tier)
+        agent_bridge.set_active_tier(new_tier, accept_disclaimer=(new_tier >= 2))
+
+        if hasattr(self, "mb_header_ai_tier"):
+            fg_map = {0: "#94a3b8", 1: "#38bdf8", 2: "#fbbf24", 3: "#f87171"}
+            self.mb_header_ai_tier.configure(
+                text=self._get_tier_short_label(new_tier),
+                fg=fg_map.get(new_tier, "#38bdf8"),
+            )
+        if hasattr(self, "lbl_ai_tab_tier_badge"):
+            desc_map = {
+                0: "🔒 Level 0: Off / Air-Gapped",
+                1: "🛡️ Level 1: Read-Only Diagnostic (Safe Default)",
+                2: "⚠️ Level 2: Supervised Remediation (Approval Popups)",
+                3: "⚡ Level 3: Autonomous Maintenance (30m Auto-Expiry)",
+            }
+            fg_map = {0: "#94a3b8", 1: "#34d399", 2: "#fbbf24", 3: "#f87171"}
+            self.lbl_ai_tab_tier_badge.configure(
+                text=desc_map.get(new_tier, ""),
+                fg=fg_map.get(new_tier, "#34d399"),
+            )
+
+        self.log_ui(f"[AI PERMISSION] Agent permission tier updated to Level {new_tier}.")
+
     def _build_ui(self):
         # 0. Global Window Background Wallpaper
         if self.bg_photo:
@@ -1452,7 +1613,7 @@ class UpdateManagerApp(tk.Tk):
             self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
             self.bg_label.lower()
 
-        # 1. Top Header Banner Canvas (with high-tech background & Jesse In The Lab circle logo)
+        # 1. Top Header Banner Canvas (Clean Title, Status Badges, AI Mode Dropdown, Coffee)
         self.top_canvas = tk.Canvas(self, height=84, bd=0, highlightthickness=0, bg="#0b1329")
         self.top_canvas.pack(fill=tk.X)
 
@@ -1473,10 +1634,10 @@ class UpdateManagerApp(tk.Tk):
             fill="#93c5fd", font=("Segoe UI", 9), anchor="w"
         )
 
-        # Dynamic Hardware + Admin Badges on the right
-        badge_box = tk.Frame(self.top_canvas, bg="#0d1527", padx=4, pady=4, highlightthickness=1, highlightbackground="#1e3a5f")
+        # Top-Right Consolidated Status & AI Mode Bar (No Duplicate Action Buttons)
+        badge_box = tk.Frame(self.top_canvas, bg="#0d1527", padx=6, pady=4, highlightthickness=1, highlightbackground="#2a3441")
 
-        # Buy Me a Coffee Button (Amber / Warm Gold)
+        # Buy Me a Coffee Button
         self.btn_coffee = tk.Button(
             badge_box,
             text=" ☕ Buy Me a Coffee ",
@@ -1486,6 +1647,7 @@ class UpdateManagerApp(tk.Tk):
         )
         self.btn_coffee.pack(side=tk.RIGHT, padx=(6, 0))
 
+        # Administrator Status Badge
         if is_User_Admin():
             self.lbl_admin_badge = ttk.Label(badge_box, text=" 🛡️ Administrator ", style="AdminOk.TLabel")
             self.lbl_admin_badge.pack(side=tk.RIGHT, padx=(6, 0))
@@ -1497,6 +1659,48 @@ class UpdateManagerApp(tk.Tk):
                 bg="#78350f", fg="#fde047", relief="flat", font=("Segoe UI", 9, "bold"), padx=8, pady=3, cursor="hand2"
             )
             self.lbl_admin_badge.pack(side=tk.RIGHT, padx=(6, 0))
+
+        # Compact AI Agent Permission Tier Dropdown Selector
+        curr_tier = self.agent_tier_var.get()
+        self.mb_header_ai_tier = tk.Menubutton(
+            badge_box,
+            text=self._get_tier_short_label(curr_tier),
+            bg="#172033", fg="#38bdf8", activebackground="#1e293b", activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"), relief="flat", padx=8, pady=3, cursor="hand2",
+            highlightthickness=1, highlightbackground="#2a3441"
+        )
+        self.menu_header_ai_tier = tk.Menu(
+            self.mb_header_ai_tier, tearoff=0,
+            bg="#0f172a", fg="#f8fafc", activebackground="#0284c7", activeforeground="#ffffff",
+            font=("Segoe UI", 9)
+        )
+        self.menu_header_ai_tier.add_radiobutton(
+            label="Level 0: Off / Air-Gapped (Zero IPC)",
+            variable=self.agent_tier_var, value=0,
+            command=lambda: self._set_agent_permission_tier(0)
+        )
+        self.menu_header_ai_tier.add_radiobutton(
+            label="Level 1: Read-Only Diagnostic (Recommended)",
+            variable=self.agent_tier_var, value=1,
+            command=lambda: self._set_agent_permission_tier(1)
+        )
+        self.menu_header_ai_tier.add_radiobutton(
+            label="Level 2: Supervised Remediation (Popup Approval)",
+            variable=self.agent_tier_var, value=2,
+            command=lambda: self._set_agent_permission_tier(2)
+        )
+        self.menu_header_ai_tier.add_radiobutton(
+            label="Level 3: Autonomous Maintenance (30m Timeout)",
+            variable=self.agent_tier_var, value=3,
+            command=lambda: self._set_agent_permission_tier(3)
+        )
+        self.menu_header_ai_tier.add_separator()
+        self.menu_header_ai_tier.add_command(
+            label="🤖 Open AI Diagnose & Agent Bridge Tab...",
+            command=self.open_ai_diagnose_dialog
+        )
+        self.mb_header_ai_tier.configure(menu=self.menu_header_ai_tier)
+        self.mb_header_ai_tier.pack(side=tk.RIGHT, padx=(6, 0))
 
         self.lbl_hw_badge = ttk.Label(badge_box, text=" 🔍 Detecting Computer Specs... ", style="Badge.TLabel")
         self.lbl_hw_badge.pack(side=tk.RIGHT)
@@ -1511,9 +1715,9 @@ class UpdateManagerApp(tk.Tk):
 
         self.top_canvas.bind("<Configure>", _on_header_resize)
 
-        # 2. Windows Updates Reminder Banner (Shown dynamically when pending OS updates exist)
+        # 2. Windows Updates Reminder Banner (Shown dynamically ONLY when pending OS updates exist)
         self.win_notice_frame = tk.Frame(
-            self, bg="#451a03", highlightbackground="#d97706", highlightthickness=1, padx=14, pady=7
+            self, bg="#451a03", highlightbackground="#d97706", highlightthickness=1, padx=14, pady=6
         )
         self.win_notice_lbl = tk.Label(
             self.win_notice_frame,
@@ -1531,86 +1735,13 @@ class UpdateManagerApp(tk.Tk):
         )
         self.btn_open_winupdate.pack(side=tk.RIGHT, padx=4)
 
-        # 2b. Microsoft Store Updates Reminder Banner (Option C)
-        self.store_notice_frame = tk.Frame(
-            self, bg="#1e1b4b", highlightbackground="#6366f1", highlightthickness=1, padx=14, pady=6
-        )
-        self.store_notice_lbl = tk.Label(
-            self.store_notice_frame,
-            text="🛍️ Microsoft Store Apps: UWP & in-box apps (Notepad, Paint, Xbox, Snipping Tool) update via the Store.",
-            bg="#1e1b4b", fg="#c7d2fe", font=("Segoe UI", 9, "bold"), anchor="w", justify=tk.LEFT
-        )
-        self.store_notice_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        self.btn_open_store = tk.Button(
-            self.store_notice_frame,
-            text="Open Store Updates",
-            command=self.open_microsoft_store,
-            bg="#4f46e5", fg="#ffffff", activebackground="#4338ca", activeforeground="#ffffff",
-            font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=2, cursor="hand2"
-        )
-        self.btn_open_store.pack(side=tk.RIGHT, padx=3)
-
-        self.btn_sync_store = tk.Button(
-            self.store_notice_frame,
-            text="⚡ Sync Store Updates",
-            command=self.trigger_store_updates,
-            bg="#312e81", fg="#e0e7ff", activebackground="#3730a3", activeforeground="#ffffff",
-            font=("Segoe UI", 9), relief="flat", padx=8, pady=2, cursor="hand2"
-        )
-        self.btn_sync_store.pack(side=tk.RIGHT, padx=3)
-
-        btn_dismiss_store = tk.Button(
-            self.store_notice_frame,
-            text="✖",
-            command=lambda: self.store_notice_frame.pack_forget(),
-            bg="#1e1b4b", fg="#a5b4fc", activebackground="#312e81", activeforeground="#ffffff",
-            font=("Segoe UI", 8, "bold"), relief="flat", padx=4, pady=1, cursor="hand2"
-        )
-        btn_dismiss_store.pack(side=tk.RIGHT, padx=(3, 0))
-
-        # 2c. Purpose & Defensive Hardening Mission Banner (Option C)
-        self.mission_frame = tk.Frame(
-            self, bg="#064e3b", highlightbackground="#10b981", highlightthickness=1, padx=14, pady=5
-        )
-        self.mission_frame.pack(fill=tk.X, padx=20, pady=(0, 4))
-        lbl_mission = tk.Label(
-            self.mission_frame,
-            text="🛡️ Purpose & Mission: Keep your computer fully updated while proactively protecting it against unknown network intrusions, exposed AI ports, and malicious payloads — 100% Free & Open-Source.",
-            bg="#064e3b", fg="#a7f3d0", font=("Segoe UI", 9, "bold"), anchor="w", justify=tk.LEFT
-        )
-        lbl_mission.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        btn_ai_diag = tk.Button(
-            self.mission_frame,
-            text="🤖 AI Diagnose",
-            command=self.open_ai_diagnose_dialog,
-            bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff",
-            font=("Segoe UI", 8, "bold"), relief="flat", padx=8, pady=2, cursor="hand2"
-        )
-        btn_ai_diag.pack(side=tk.RIGHT, padx=3)
-
-        btn_ai_shield = tk.Button(
-            self.mission_frame,
-            text="🛡️ Intrusion & AI Shield",
-            command=self.open_ai_dev_hub,
-            bg="#059669", fg="#ffffff", activebackground="#047857", activeforeground="#ffffff",
-            font=("Segoe UI", 8, "bold"), relief="flat", padx=8, pady=2, cursor="hand2"
-        )
-        btn_ai_shield.pack(side=tk.RIGHT, padx=3)
-
-        btn_dismiss_mission = tk.Button(
-            self.mission_frame,
-            text="✖",
-            command=lambda: self.mission_frame.pack_forget(),
-            bg="#064e3b", fg="#6ee7b7", activebackground="#047857", activeforeground="#ffffff",
-            font=("Segoe UI", 8, "bold"), relief="flat", padx=4, pady=1, cursor="hand2"
-        )
-        btn_dismiss_mission.pack(side=tk.RIGHT, padx=(2, 0))
+        # Legacy frame references preserved un-packed so background scan callbacks never clutter the header
+        self.store_notice_frame = tk.Frame(self, bg="#1e1b4b")
+        self.mission_frame = tk.Frame(self, bg="#064e3b")
 
         # 3. Main Split-Pane Container (Native Draggable PanedWindow)
         self.main_paned = ttk.PanedWindow(self, orient=tk.VERTICAL)
-        self.main_paned.pack(fill=tk.BOTH, expand=True, padx=20, pady=(6, 10))
+        self.main_paned.pack(fill=tk.BOTH, expand=True, padx=18, pady=(8, 10))
 
         # Main Multi-Tab Notebook (Upper Pane)
         self.notebook = ttk.Notebook(self.main_paned)
@@ -1618,14 +1749,17 @@ class UpdateManagerApp(tk.Tk):
 
         self.tab_updater = ttk.Frame(self.notebook)
         self.tab_specs = ttk.Frame(self.notebook)
+        self.tab_ai_diagnose = ttk.Frame(self.notebook)
         self.tab_help = ttk.Frame(self.notebook)
 
         self.notebook.add(self.tab_updater, text="  🚀 Software Updater  ")
         self.notebook.add(self.tab_specs, text="  💻 Computer Specs & Installed Apps  ")
+        self.notebook.add(self.tab_ai_diagnose, text="  🤖 AI Diagnose & Agent Bridge  ")
         self.notebook.add(self.tab_help, text="  ❓ Help & User Guide  ")
 
         self._build_updater_tab()
         self._build_specs_tab()
+        self._build_ai_diagnose_tab()
         self._build_help_tab()
 
         # 4. Collapsible & Vertically Resizable Live Console Log Drawer (Lower Pane)
@@ -1841,79 +1975,117 @@ class UpdateManagerApp(tk.Tk):
         btn_row = ttk.Frame(control_frame)
         btn_row.pack(fill=tk.X)
 
-        self.btn_scan = ttk.Button(btn_row, text="🔄 Full System & Update Scan", style="Primary.TButton", command=self.start_full_scan)
-        self.btn_scan.pack(side=tk.LEFT, padx=(0, 8))
+        # 4 Primary Action Buttons (Clean, Uncrowded Left Group)
+        self.btn_scan = ttk.Button(
+            btn_row, text="🔄 Full System & Update Scan", style="Primary.TButton", command=self.start_full_scan
+        )
+        self.btn_scan.pack(side=tk.LEFT, padx=(0, 6))
 
         self.btn_update_all = ttk.Button(
-            btn_row, text="⚡ Push All Updates (One-by-One)", style="Success.TButton", command=self.start_update_all
+            btn_row, text="⚡ Push All Updates", style="Success.TButton", command=self.start_update_all
         )
-        self.btn_update_all.pack(side=tk.LEFT, padx=6)
+        self.btn_update_all.pack(side=tk.LEFT, padx=5)
 
         self.btn_update_selected = ttk.Button(
-            btn_row, text="✔ Update Highlighted Only", style="Secondary.TButton", command=self.start_update_selected
+            btn_row, text="✔ Update Selected", style="Secondary.TButton", command=self.start_update_selected
         )
-        self.btn_update_selected.pack(side=tk.LEFT, padx=6)
+        self.btn_update_selected.pack(side=tk.LEFT, padx=5)
 
         self.btn_stop = ttk.Button(
             btn_row, text="⏹ Stop Batch", style="Danger.TButton", command=self.request_stop_batch, state="disabled"
         )
-        self.btn_stop.pack(side=tk.LEFT, padx=6)
+        self.btn_stop.pack(side=tk.LEFT, padx=5)
 
-        self.btn_browsers = ttk.Button(
-            btn_row, text="🌐 Update Browsers", style="Secondary.TButton", command=self.trigger_browser_updates
-        )
-        self.btn_browsers.pack(side=tk.LEFT, padx=6)
-
-        self.btn_store = ttk.Button(
-            btn_row, text="🛍️ Store Apps", style="Secondary.TButton", command=self.trigger_store_updates
-        )
-        self.btn_store.pack(side=tk.LEFT, padx=6)
-
-        self.btn_ai_audit = ttk.Button(
-            btn_row, text="🤖 AI Suites", style="Secondary.TButton", command=self.open_ai_dev_hub
-        )
-        self.btn_ai_audit.pack(side=tk.LEFT, padx=6)
-
-        self.btn_ai_diagnose = ttk.Button(
-            btn_row, text="🤖 AI Diagnose", style="Secondary.TButton", command=self.open_ai_diagnose_dialog
-        )
-        self.btn_ai_diagnose.pack(side=tk.LEFT, padx=6)
-
-        # Silent Mode Checkbox
-        chk_silent = tk.Checkbutton(
+        # Dropdown 1: 🛠 Quick Tools ▾
+        self.mb_quick_tools = tk.Menubutton(
             btn_row,
-            text="Silent Install (--silent)",
-            variable=self.silent_mode_var,
-            bg=self.bg_color, fg="#cbd5e1", selectcolor="#1e293b",
-            activebackground=self.bg_color, activeforeground="#ffffff",
+            text=" 🛠 Quick Tools ▾ ",
+            bg="#1e293b", fg="#38bdf8", activebackground="#334155", activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=6, cursor="hand2",
+            highlightthickness=1, highlightbackground="#2a3441"
+        )
+        self.menu_quick_tools = tk.Menu(
+            self.mb_quick_tools, tearoff=0,
+            bg="#0f172a", fg="#f8fafc", activebackground="#0284c7", activeforeground="#ffffff",
             font=("Segoe UI", 9)
         )
-        chk_silent.pack(side=tk.LEFT, padx=8)
+        self.menu_quick_tools.add_command(
+            label="🤖 AI Diagnose & Local Agent Bridge (Tab)",
+            command=self.open_ai_diagnose_dialog
+        )
+        self.menu_quick_tools.add_command(
+            label="🛡️ Intrusion & AI Suites Shield",
+            command=self.open_ai_dev_hub
+        )
+        self.menu_quick_tools.add_separator()
+        self.menu_quick_tools.add_command(
+            label="🌐 Update All Web Browsers (Chrome, Edge, Brave, Firefox)",
+            command=self.trigger_browser_updates
+        )
+        self.menu_quick_tools.add_command(
+            label="🛍️ Sync & Open Microsoft Store Library",
+            command=self.trigger_store_updates
+        )
+        self.menu_quick_tools.add_command(
+            label="🪟 Open Windows Update Settings",
+            command=self.open_windows_update
+        )
+        self.menu_quick_tools.add_separator()
+        self.menu_quick_tools.add_command(
+            label="📜 Toggle Live Console Log Drawer",
+            command=self.toggle_log_pane
+        )
+        self.mb_quick_tools.configure(menu=self.menu_quick_tools)
+        self.mb_quick_tools.pack(side=tk.LEFT, padx=(10, 5))
 
-        # System Restore Point Checkbox
-        self.restore_point_var = tk.BooleanVar(value=True)
-        chk_restore = tk.Checkbutton(
+        # Dropdown 2: ⚙ Update Settings ▾
+        self.mb_update_settings = tk.Menubutton(
             btn_row,
-            text="Restore Point (Recommended)",
+            text=" ⚙ Update Settings ▾ ",
+            bg="#1e293b", fg="#cbd5e1", activebackground="#334155", activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=6, cursor="hand2",
+            highlightthickness=1, highlightbackground="#2a3441"
+        )
+        self.menu_update_settings = tk.Menu(
+            self.mb_update_settings, tearoff=0,
+            bg="#0f172a", fg="#f8fafc", activebackground="#0284c7", activeforeground="#ffffff",
+            font=("Segoe UI", 9), selectcolor="#34d399"
+        )
+
+        def _update_settings_label():
+            flags = []
+            if self.restore_point_var.get():
+                flags.append("Restore Point")
+            if self.silent_mode_var.get():
+                flags.append("Silent")
+            if self.include_unverified_var.get():
+                flags.append("Unverified Allowed")
+            summary = f" ({', '.join(flags)})" if flags else ""
+            self.mb_update_settings.configure(text=f" ⚙ Update Settings{summary} ▾ ")
+
+        self.menu_update_settings.add_checkbutton(
+            label="Create System Restore Point Before Batch (Recommended)",
             variable=self.restore_point_var,
-            bg=self.bg_color, fg="#34d399", selectcolor="#1e293b",
-            activebackground=self.bg_color, activeforeground="#ffffff",
-            font=("Segoe UI", 9, "bold")
+            command=_update_settings_label
         )
-        chk_restore.pack(side=tk.LEFT, padx=(4, 8))
-
-        # Security Gate: Allow Unverified Checkbox
-        chk_unverified = tk.Checkbutton(
-            btn_row,
-            text="Allow Unverified",
+        self.menu_update_settings.add_checkbutton(
+            label="Silent Install Mode (--silent)",
+            variable=self.silent_mode_var,
+            command=_update_settings_label
+        )
+        self.menu_update_settings.add_separator()
+        self.menu_update_settings.add_checkbutton(
+            label="Allow Unverified Packages (Bypass Trust Gate Warning)",
             variable=self.include_unverified_var,
-            bg=self.bg_color, fg="#fde047", selectcolor="#1e293b",
-            activebackground=self.bg_color, activeforeground="#ffffff",
-            font=("Segoe UI", 9)
+            command=_update_settings_label
         )
-        chk_unverified.pack(side=tk.LEFT, padx=(4, 10))
+        self.mb_update_settings.configure(menu=self.menu_update_settings)
+        self.mb_update_settings.pack(side=tk.LEFT, padx=5)
+        _update_settings_label()
 
-        self.btn_toggle_log = ttk.Button(btn_row, text="📜 View Live Log", style="Secondary.TButton", command=self.toggle_log_pane)
+        self.btn_toggle_log = ttk.Button(
+            btn_row, text="📜 View Live Log", style="Secondary.TButton", command=self.toggle_log_pane
+        )
         self.btn_toggle_log.pack(side=tk.RIGHT, padx=2)
 
     def _make_kpi_card(self, parent, col, title, initial_val, sub_text, color):
@@ -2288,271 +2460,180 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             self.log_ui(f"[FILTER] Highlighted {len(matched)} AI / Developer tool(s) for update.")
         self.open_ai_dev_hub()
 
-    def open_live_diagnostic_viewer(self, parent_win=None):
-        """Run and display the live PC diagnostic scan in a clean dedicated viewer window."""
-        win = tk.Toplevel(parent_win or self)
-        win.title("🔍 Live PC Diagnostic & Security Scan — Software Update Manager")
-        win.geometry("900x640")
-        win.minsize(780, 500)
-        win.configure(bg="#0b1329")
-        win.transient(parent_win or self)
-
-        try:
-            p = parent_win or self
-            x = p.winfo_rootx() + (p.winfo_width() // 2) - 450
-            y = p.winfo_rooty() + (p.winfo_height() // 2) - 320
-            win.geometry(f"+{max(10, x)}+{max(10, y)}")
-        except Exception:
-            pass
-
-        hdr = tk.Frame(win, bg="#131c38", padx=14, pady=10, highlightbackground="#3b82f6", highlightthickness=1)
-        hdr.pack(fill=tk.X, padx=12, pady=(10, 6))
-
-        tk.Label(
-            hdr, text="🔍 Live PC Diagnostic & Security Scan",
-            bg="#131c38", fg="#60a5fa", font=("Segoe UI", 12, "bold")
-        ).pack(anchor="w")
-
-        status_lbl = tk.Label(
-            hdr, text="⏳ Scanning hardware specs, listening sockets, and package inventory...",
-            bg="#131c38", fg="#94a3b8", font=("Segoe UI", 9)
+    # -----------------------------------------------------------------
+    # TAB 3: AI DIAGNOSE & LOCAL AGENT BRIDGE (SPLIT-PANE + ACCORDIONS)
+    # -----------------------------------------------------------------
+    def _build_ai_diagnose_tab(self):
+        # Top Header Strip inside Tab
+        top_bar = tk.Frame(
+            self.tab_ai_diagnose, bg="#131c38", padx=14, pady=10,
+            highlightbackground="#2a3441", highlightthickness=1
         )
-        status_lbl.pack(anchor="w", pady=(2, 0))
-
-        txt_frame = tk.Frame(win, bg="#0b1329")
-        txt_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
-
-        scroll = ttk.Scrollbar(txt_frame, orient=tk.VERTICAL)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-        diag_text = tk.Text(
-            txt_frame, bg="#020617", fg="#e2e8f0", insertbackground="#ffffff",
-            font=("Consolas", 10), wrap=tk.WORD, yscrollcommand=scroll.set,
-            padx=12, pady=10, relief="flat", highlightbackground="#1e293b", highlightthickness=1
-        )
-        diag_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll.config(command=diag_text.yview)
-
-        act_bar = tk.Frame(win, bg="#0b1329", pady=8)
-        act_bar.pack(fill=tk.X, padx=12)
-
-        def _copy_report():
-            win.clipboard_clear()
-            win.clipboard_append(diag_text.get("1.0", tk.END))
-            messagebox.showinfo("Copied", "Full diagnostic report copied to clipboard!", parent=win)
-
-        def _save_report():
-            try:
-                from tkinter import filedialog
-                p = filedialog.asksaveasfilename(
-                    parent=win,
-                    title="Save Diagnostic Report",
-                    defaultextension=".md",
-                    filetypes=[("Markdown Document", "*.md"), ("Text Files", "*.txt"), ("All Files", "*.*")],
-                    initialfile="ai_pc_diagnostic_report.md"
-                )
-                if p:
-                    with open(p, "w", encoding="utf-8") as f:
-                        f.write(diag_text.get("1.0", tk.END))
-                    messagebox.showinfo("Saved", f"Report saved successfully to:\n{p}", parent=win)
-            except Exception as e:
-                messagebox.showerror("Save Error", f"Failed to save file: {e}", parent=win)
+        top_bar.pack(fill=tk.X, pady=(8, 8))
 
         tk.Button(
-            act_bar, text="📋 Copy Report", command=_copy_report,
-            bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff",
-            font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=5, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=(0, 6))
-
-        tk.Button(
-            act_bar, text="💾 Save to File", command=_save_report,
-            bg="#1e293b", fg="#cbd5e1", activebackground="#334155", activeforeground="#ffffff",
-            font=("Segoe UI", 9), relief="flat", padx=10, pady=5, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=4)
-
-        tk.Button(
-            act_bar, text="✖ Close", command=win.destroy,
-            bg="#334155", fg="#e2e8f0", activebackground="#475569", activeforeground="#ffffff",
-            font=("Segoe UI", 9), relief="flat", padx=12, pady=5, cursor="hand2"
-        ).pack(side=tk.RIGHT)
-
-        def _async_scan():
-            try:
-                content = agent_bridge.generate_ai_prompt_bundle()
-                def _update_ui():
-                    diag_text.delete("1.0", tk.END)
-                    diag_text.insert(tk.END, content)
-                    status_lbl.config(
-                        text="✓ Scan Complete — Hardware health, listening sockets, and package inventory verified.",
-                        fg="#34d399"
-                    )
-                win.after(0, _update_ui)
-            except Exception as e:
-                def _err_ui():
-                    status_lbl.config(text=f"✗ Scan Failed: {e}", fg="#f87171")
-                    diag_text.insert(tk.END, f"Error generating diagnostic report:\n{e}")
-                win.after(0, _err_ui)
-
-        threading.Thread(target=_async_scan, daemon=True).start()
-
-    def open_ai_diagnose_dialog(self):
-        """Open the Universal AI PC Diagnostic & Local Agent Bridge window."""
-        win = tk.Toplevel(self)
-        win.title("🤖 AI PC Diagnose & Local Agent Bridge — Software Update Manager")
-        win.geometry("1020x760")
-        win.minsize(900, 600)
-        win.configure(bg="#0b1329")
-        win.transient(self)
-
-        # Center over parent
-        try:
-            x = self.winfo_rootx() + (self.winfo_width() // 2) - 510
-            y = self.winfo_rooty() + (self.winfo_height() // 2) - 380
-            win.geometry(f"+{max(10, x)}+{max(10, y)}")
-        except Exception:
-            pass
-
-        # Top Banner (Always Fixed at Top)
-        header_frame = tk.Frame(win, bg="#131c38", padx=16, pady=12, highlightbackground="#3b82f6", highlightthickness=1)
-        header_frame.pack(fill=tk.X, padx=14, pady=(12, 8))
-
-        # Pack Right-Side Action Button FIRST to guarantee full un-truncated width
-        tk.Button(
-            header_frame,
-            text="🔍 Run Diagnostic Scan Now",
-            command=lambda: self.open_live_diagnostic_viewer(win),
+            top_bar,
+            text="🔍 Run Live Diagnostic Scan",
+            command=self.run_embedded_diagnostic_scan,
             bg="#059669", fg="#ffffff", activebackground="#047857", activeforeground="#ffffff",
-            font=("Segoe UI", 10, "bold"), relief="flat", padx=16, pady=6, cursor="hand2"
-        ).pack(side=tk.RIGHT, padx=(12, 0))
+            font=("Segoe UI", 9, "bold"), relief="flat", padx=14, pady=5, cursor="hand2"
+        ).pack(side=tk.RIGHT, padx=(10, 0))
 
-        title_col = tk.Frame(header_frame, bg="#131c38")
+        title_col = tk.Frame(top_bar, bg="#131c38")
         title_col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        tk.Label(
-            title_col,
-            text="🤖 AI PC Diagnose & Local Agent Bridge (v2.5)",
-            bg="#131c38", fg="#60a5fa", font=("Segoe UI", 13, "bold"), anchor="w"
-        ).pack(anchor="w")
+        title_row = tk.Frame(title_col, bg="#131c38")
+        title_row.pack(fill=tk.X, anchor="w")
 
         tk.Label(
+            title_row,
+            text="🤖 AI PC Diagnose & Local Agent Bridge",
+            bg="#131c38", fg="#60a5fa", font=("Segoe UI", 12, "bold"), anchor="w"
+        ).pack(side=tk.LEFT)
+
+        curr_tier = self.agent_tier_var.get()
+        desc_map = {
+            0: "🔒 Level 0: Off / Air-Gapped",
+            1: "🛡️ Level 1: Read-Only Diagnostic (Safe Default)",
+            2: "⚠️ Level 2: Supervised Remediation (Approval Popups)",
+            3: "⚡ Level 3: Autonomous Maintenance (30m Auto-Expiry)",
+        }
+        fg_map = {0: "#94a3b8", 1: "#34d399", 2: "#fbbf24", 3: "#f87171"}
+        self.lbl_ai_tab_tier_badge = tk.Label(
+            title_row,
+            text=desc_map.get(curr_tier, ""),
+            bg="#0f172a", fg=fg_map.get(curr_tier, "#34d399"),
+            font=("Segoe UI", 8, "bold"), padx=8, pady=2
+        )
+        self.lbl_ai_tab_tier_badge.pack(side=tk.LEFT, padx=(12, 0))
+
+        sub_hdr = tk.Label(
             title_col,
-            text="Generate sanitized diagnostic prompt bundles for any web AI, or connect desktop agents (Claude, Antigravity) via zero-port stdio MCP.",
+            text="Left Pane: Collapsible Agent Controls & Permission Tiers  •  Right Pane: Embedded Live Diagnostic Scan Output",
             bg="#131c38", fg="#94a3b8", font=("Segoe UI", 9), anchor="w"
-        ).pack(anchor="w", pady=(2, 0))
+        )
+        sub_hdr.pack(fill=tk.X, anchor="w", pady=(2, 0))
 
-        # Scrollable Canvas Container so all content (including Third-Party Notice) is 100% visible
-        canvas_container = tk.Frame(win, bg="#0b1329")
-        canvas_container.pack(fill=tk.BOTH, expand=True)
+        # Horizontal Split-Pane (Left: Collapsible Accordions | Right: Live Diagnostic Output Console)
+        self.ai_split_paned = ttk.PanedWindow(self.tab_ai_diagnose, orient=tk.HORIZONTAL)
+        self.ai_split_paned.pack(fill=tk.BOTH, expand=True, pady=(0, 4))
 
-        canvas = tk.Canvas(canvas_container, bg="#0b1329", highlightthickness=0)
-        v_scroll = ttk.Scrollbar(canvas_container, orient=tk.VERTICAL, command=canvas.yview)
-        canvas.configure(yscrollcommand=v_scroll.set)
+        # -----------------------------------------------------------------
+        # LEFT PANE: SCROLLABLE COLLAPSIBLE ACCORDION CONTROLS
+        # -----------------------------------------------------------------
+        left_outer = tk.Frame(self.ai_split_paned, bg=self.bg_color)
+        self.ai_split_paned.add(left_outer, weight=5)
 
-        v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        left_canvas = tk.Canvas(left_outer, bg=self.bg_color, highlightthickness=0)
+        left_scroll = ttk.Scrollbar(left_outer, orient=tk.VERTICAL, command=left_canvas.yview)
+        left_canvas.configure(yscrollcommand=left_scroll.set)
 
-        container = tk.Frame(canvas, bg="#0b1329", padx=14)
-        canvas_win = canvas.create_window((0, 0), window=container, anchor="nw")
+        left_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        left_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        def _on_container_configure(event):
-            canvas.configure(scrollregion=canvas.bbox("all"))
+        acc_container = tk.Frame(left_canvas, bg=self.bg_color, padx=4)
+        acc_win = left_canvas.create_window((0, 0), window=acc_container, anchor="nw")
 
-        def _on_canvas_configure(event):
-            canvas.itemconfig(canvas_win, width=event.width)
+        def _update_left_scroll(_e=None):
+            left_canvas.configure(scrollregion=left_canvas.bbox("all"))
 
-        container.bind("<Configure>", _on_container_configure)
-        canvas.bind("<Configure>", _on_canvas_configure)
+        def _resize_left_canvas(event):
+            left_canvas.itemconfig(acc_win, width=event.width)
 
-        def _on_mousewheel(event):
+        acc_container.bind("<Configure>", _update_left_scroll)
+        left_canvas.bind("<Configure>", _resize_left_canvas)
+
+        def _on_left_mousewheel(event):
             try:
-                if canvas.winfo_exists():
-                    canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                if left_canvas.winfo_exists():
+                    left_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
             except Exception:
                 pass
 
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
-        win.bind("<Destroy>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        left_canvas.bind("<Enter>", lambda _e: left_canvas.bind_all("<MouseWheel>", _on_left_mousewheel))
+        left_canvas.bind("<Leave>", lambda _e: left_canvas.unbind_all("<MouseWheel>"))
 
-        # Section 1: Option A — Universal 1-Click Diagnostic Bundle
-        card_a = tk.Frame(container, bg="#111827", padx=14, pady=12, highlightbackground="#1f2937", highlightthickness=1)
-        card_a.pack(fill=tk.X, pady=6)
+        # ACCORDION 1: Option A — 1-Click AI Diagnostic Bundle (Expanded by default)
+        pane_a = CollapsiblePane(
+            acc_container,
+            title="📋 Option A: 1-Click AI Diagnostic Bundle (Web AI)",
+            subtitle="Generates an injection-hardened diagnostic summary (Specs, Listening Sockets, Updates) and copies it to your clipboard with an expert diagnostic prompt.",
+            expanded=True,
+            accent_fg="#38bdf8",
+        )
+        pane_a.pack(fill=tk.X, pady=(0, 8))
+        pane_a.bind("<<AccordionToggled>>", _update_left_scroll)
 
-        tk.Label(
-            card_a, text="📋 Option A: 1-Click AI Diagnostic Bundle (Zero Setup — Any Web AI)",
-            bg="#111827", fg="#38bdf8", font=("Segoe UI", 10, "bold"), anchor="w"
-        ).pack(anchor="w")
-
-        tk.Label(
-            card_a,
-            text="Generates an injection-hardened diagnostic summary (Specs, Listening Sockets, Updates) and copies it to your clipboard with an expert diagnostic prompt.",
-            bg="#111827", fg="#cbd5e1", font=("Segoe UI", 9), justify=tk.LEFT, wraplength=880
-        ).pack(anchor="w", pady=(2, 8))
-
-        btn_row_a = tk.Frame(card_a, bg="#111827")
+        btn_row_a = tk.Frame(pane_a.content, bg="#111827")
         btn_row_a.pack(fill=tk.X)
 
-        status_lbl_a = tk.Label(card_a, text="", bg="#111827", fg="#34d399", font=("Segoe UI", 9, "bold"))
+        status_lbl_a = tk.Label(
+            pane_a.content, text="", bg="#111827", fg="#34d399", font=("Segoe UI", 8, "bold"), justify=tk.LEFT, anchor="w"
+        )
+        CollapsiblePane.bind_responsive_wrap(status_lbl_a)
 
         def _copy_bundle():
             bundle = agent_bridge.generate_ai_diagnostic_bundle()
-            win.clipboard_clear()
-            win.clipboard_append(bundle)
-            status_lbl_a.config(text="✓ Sanitized AI Diagnostic Prompt copied to clipboard! Ready to paste into Copilot, Claude, or ChatGPT.")
-            status_lbl_a.pack(anchor="w", pady=(6, 0))
+            self.clipboard_clear()
+            self.clipboard_append(bundle)
+            status_lbl_a.config(
+                text="✓ Sanitized AI Diagnostic Prompt copied to clipboard! Paste (Ctrl+V) into Copilot, Claude, or ChatGPT."
+            )
+            status_lbl_a.pack(fill=tk.X, anchor="w", pady=(6, 0))
             self.log_ui("[AI DIAGNOSE] Diagnostic prompt bundle copied to clipboard.")
+            self.run_embedded_diagnostic_scan()
 
         tk.Button(
-            btn_row_a, text="📋 Copy AI Diagnostic Bundle", command=_copy_bundle,
+            btn_row_a, text="📋 Copy Diagnostic Bundle", command=_copy_bundle,
             bg="#0284c7", fg="#ffffff", activebackground="#0369a1", activeforeground="#ffffff",
-            font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=5, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=(0, 6))
+            font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=(0, 5), pady=2)
 
         tk.Button(
-            btn_row_a, text="🌐 Open Copilot in Edge", command=lambda: webbrowser.open("https://copilot.microsoft.com"),
+            btn_row_a, text="🌐 Copilot", command=lambda: webbrowser.open("https://copilot.microsoft.com"),
             bg="#1e293b", fg="#e2e8f0", activebackground="#334155", activeforeground="#ffffff",
-            font=("Segoe UI", 9), relief="flat", padx=10, pady=5, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=4)
+            font=("Segoe UI", 9), relief="flat", padx=8, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=3, pady=2)
 
         tk.Button(
-            btn_row_a, text="🌐 Open Claude Web", command=lambda: webbrowser.open("https://claude.ai"),
+            btn_row_a, text="🌐 Claude Web", command=lambda: webbrowser.open("https://claude.ai"),
             bg="#1e293b", fg="#e2e8f0", activebackground="#334155", activeforeground="#ffffff",
-            font=("Segoe UI", 9), relief="flat", padx=10, pady=5, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=4)
+            font=("Segoe UI", 9), relief="flat", padx=8, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=3, pady=2)
 
         tk.Button(
-            btn_row_a, text="🌐 Open ChatGPT", command=lambda: webbrowser.open("https://chatgpt.com"),
+            btn_row_a, text="🌐 ChatGPT", command=lambda: webbrowser.open("https://chatgpt.com"),
             bg="#1e293b", fg="#e2e8f0", activebackground="#334155", activeforeground="#ffffff",
-            font=("Segoe UI", 9), relief="flat", padx=10, pady=5, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=4)
+            font=("Segoe UI", 9), relief="flat", padx=8, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=3, pady=2)
 
-        # Section 2: Option B — Local Stdio MCP Bridge
-        card_b = tk.Frame(container, bg="#111827", padx=14, pady=12, highlightbackground="#1f2937", highlightthickness=1)
-        card_b.pack(fill=tk.X, pady=6)
+        # ACCORDION 2: Option B — Local Stdio MCP Bridge (Collapsed by default)
+        pane_b = CollapsiblePane(
+            acc_container,
+            title="⚡ Option B: Local Stdio MCP Bridge (Claude, Antigravity, Cursor)",
+            subtitle="Exposes verified diagnostic and update tools to agentic IDEs via JSON-RPC stdio. 0 open network ports, 0 MB GPU VRAM overhead.",
+            expanded=False,
+            accent_fg="#818cf8",
+        )
+        pane_b.pack(fill=tk.X, pady=(0, 8))
+        pane_b.bind("<<AccordionToggled>>", _update_left_scroll)
 
-        tk.Label(
-            card_b, text="⚡ Option B: Local Stdio MCP Bridge (Claude Desktop, Antigravity, Cursor)",
-            bg="#111827", fg="#818cf8", font=("Segoe UI", 10, "bold"), anchor="w"
-        ).pack(anchor="w")
-
-        tk.Label(
-            card_b,
-            text="Exposes verified diagnostic and update tools to agentic IDEs via JSON-RPC stdio. 0 open network ports, 0 MB GPU VRAM overhead.",
-            bg="#111827", fg="#cbd5e1", font=("Segoe UI", 9), justify=tk.LEFT, wraplength=880
-        ).pack(anchor="w", pady=(2, 8))
-
-        btn_row_b = tk.Frame(card_b, bg="#111827")
+        btn_row_b = tk.Frame(pane_b.content, bg="#111827")
         btn_row_b.pack(fill=tk.X)
 
-        status_lbl_b = tk.Label(card_b, text="", bg="#111827", fg="#34d399", font=("Segoe UI", 9))
+        status_lbl_b = tk.Label(
+            pane_b.content, text="", bg="#111827", fg="#34d399", font=("Segoe UI", 8, "bold"), justify=tk.LEFT, anchor="w"
+        )
+        CollapsiblePane.bind_responsive_wrap(status_lbl_b)
 
         def _auto_configure_mcp():
             clients = agent_bridge.detect_mcp_clients()
             if not clients:
                 messagebox.showinfo(
                     "No Supported MCP Clients Found",
-                    "Could not find configuration folders for Claude Desktop or Antigravity IDE.\n\n"
-                    "You can still use 'Copy MCP Config JSON' to paste the configuration manually into any agentic tool.",
-                    parent=win
+                    "Could not find configuration folders for Claude Desktop, Antigravity IDE, or Cursor.\n\n"
+                    "You can still use 'Copy MCP Config JSON' to paste the configuration manually.",
+                    parent=self
                 )
                 return
 
@@ -2561,16 +2642,16 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                 "Configure MCP Clients?",
                 f"Detected local MCP environments: {c_names}\n\n"
                 "Would you like Software Update Manager to automatically register its stdio bridge in their configuration files?",
-                parent=win
+                parent=self
             )
             if confirm:
                 msgs = []
                 for name, path in clients.items():
                     ok, res = agent_bridge.install_mcp_config_to_client(name, path)
                     msgs.append(f"• {name}: {'✓ Done' if ok else '✗ Failed'} ({res})")
-                messagebox.showinfo("MCP Auto-Configuration Result", "\n\n".join(msgs), parent=win)
+                messagebox.showinfo("MCP Auto-Configuration Result", "\n\n".join(msgs), parent=self)
                 status_lbl_b.config(text=f"✓ Auto-configured: {c_names}")
-                status_lbl_b.pack(anchor="w", pady=(6, 0))
+                status_lbl_b.pack(fill=tk.X, anchor="w", pady=(6, 0))
                 _refresh_launch_buttons()
 
         def _copy_mcp_json():
@@ -2585,88 +2666,71 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                     }
                 }
             }, indent=2)
-            win.clipboard_clear()
-            win.clipboard_append(mcp_snippet)
+            self.clipboard_clear()
+            self.clipboard_append(mcp_snippet)
             status_lbl_b.config(text="✓ MCP Stdio JSON configuration copied to clipboard!")
-            status_lbl_b.pack(anchor="w", pady=(6, 0))
+            status_lbl_b.pack(fill=tk.X, anchor="w", pady=(6, 0))
 
         tk.Button(
             btn_row_b, text="⚡ Auto-Configure Detected MCP Clients", command=_auto_configure_mcp,
             bg="#4f46e5", fg="#ffffff", activebackground="#4338ca", activeforeground="#ffffff",
-            font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=5, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=(0, 6))
+            font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=(0, 5), pady=2)
 
         tk.Button(
             btn_row_b, text="📋 Copy MCP Config JSON", command=_copy_mcp_json,
             bg="#1e293b", fg="#cbd5e1", activebackground="#334155", activeforeground="#ffffff",
-            font=("Segoe UI", 9), relief="flat", padx=10, pady=5, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=4)
+            font=("Segoe UI", 9), relief="flat", padx=8, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=3, pady=2)
 
-        # Launch buttons for detected local MCP clients
-        launch_frame_b = tk.Frame(card_b, bg="#111827")
-        launch_frame_b.pack(fill=tk.X, pady=(8, 0))
+        launch_frame_b = tk.Frame(pane_b.content, bg="#111827")
+        launch_frame_b.pack(fill=tk.X, pady=(6, 0))
 
         def _refresh_launch_buttons():
             for w in launch_frame_b.winfo_children():
                 w.destroy()
             clients = agent_bridge.detect_mcp_clients()
-            found_any = False
             for c_name in clients:
                 launcher = agent_bridge.find_mcp_client_launcher(c_name)
                 if launcher:
-                    found_any = True
                     def _launch_app(name=c_name):
                         prompt = (
                             "Please run a complete PC diagnostic using Software Update Manager "
                             "(check hardware specs, listening sockets, and pending updates) "
                             "and report any security risks or software needing attention."
                         )
-                        win.clipboard_clear()
-                        win.clipboard_append(prompt)
+                        self.clipboard_clear()
+                        self.clipboard_append(prompt)
                         ok, msg = agent_bridge.launch_mcp_client(name)
                         if ok:
                             status_lbl_b.config(
-                                text=f"✓ Opened {name}! Diagnostic prompt copied to clipboard — paste with Ctrl+V.",
+                                text=f"✓ Opened {name}! Starter diagnostic prompt copied — paste with Ctrl+V.",
                                 fg="#34d399"
                             )
-                            status_lbl_b.pack(anchor="w", pady=(6, 0))
+                            status_lbl_b.pack(fill=tk.X, anchor="w", pady=(6, 0))
                         else:
-                            messagebox.showwarning("Launch Warning", msg, parent=win)
+                            messagebox.showwarning("Launch Warning", msg, parent=self)
 
                     tk.Button(
                         launch_frame_b,
-                        text=f"🚀 Open {c_name} to Continue",
+                        text=f"🚀 Open {c_name}",
                         command=_launch_app,
                         bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff",
-                        font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=5, cursor="hand2"
-                    ).pack(side=tk.LEFT, padx=(0, 8))
-
-            if found_any:
-                tk.Label(
-                    launch_frame_b,
-                    text="← Click to launch your local AI assistant & auto-copy starter diagnostic prompt",
-                    bg="#111827", fg="#94a3b8", font=("Segoe UI", 8, "italic")
-                ).pack(side=tk.LEFT)
+                        font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=4, cursor="hand2"
+                    ).pack(side=tk.LEFT, padx=(0, 6), pady=2)
 
         _refresh_launch_buttons()
 
-        # Section 3: 4-Tier Permission Gatekeeper
-        card_c = tk.Frame(container, bg="#111827", padx=14, pady=12, highlightbackground="#1f2937", highlightthickness=1)
-        card_c.pack(fill=tk.X, pady=6)
-
-        tk.Label(
-            card_c, text="🛡️ 4-Tier Local Agent Permission Gatekeeper",
-            bg="#111827", fg="#f59e0b", font=("Segoe UI", 10, "bold"), anchor="w"
-        ).pack(anchor="w")
-
-        tk.Label(
-            card_c,
-            text="Controls the tool execution boundary. Enforced strictly at the local IPC layer — external AI agents cannot elevate their own tier.",
-            bg="#111827", fg="#94a3b8", font=("Segoe UI", 8), anchor="w"
-        ).pack(anchor="w", pady=(1, 6))
-
-        current_tier = agent_bridge.get_active_tier()
-        tier_var = tk.IntVar(value=current_tier)
+        # ACCORDION 3: 4-Tier Local Agent Permission Gatekeeper (Collapsed by default)
+        pane_c = CollapsiblePane(
+            acc_container,
+            title="🛡️ 4-Tier Local Agent Permission Gatekeeper",
+            subtitle="Controls the tool execution boundary at the local IPC layer — external AI agents cannot elevate their own tier. Mirrors the top-header AI Mode dropdown.",
+            expanded=False,
+            accent_fg="#f59e0b",
+        )
+        pane_c.pack(fill=tk.X, pady=(0, 8))
+        pane_c.bind("<<AccordionToggled>>", _update_left_scroll)
 
         tiers_info = [
             (0, "Level 0: Off / Air-Gapped", "Bridge completely disabled. Zero IPC responses."),
@@ -2675,100 +2739,94 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             (3, "Level 3: Autonomous Maintenance", "Sequential batch updates. Auto-creates System Restore Point. Auto-expires after 30 mins."),
         ]
 
-        def _on_tier_change():
-            val = tier_var.get()
-            if val >= 2:
-                # Require explicit disclaimer acceptance
-                ans = messagebox.askyesno(
-                    "Enable Mutating AI Agent Permissions?",
-                    f"You have selected Level {val}.\n\n"
-                    "⚠️ Third-Party AI Autonomy & Responsibility Notice:\n"
-                    "Connecting external AI agents (such as Copilot, Claude, or local models) to perform system "
-                    "modifications is an optional, advanced capability. While Software Update Manager enforces strict "
-                    "local permission boundaries and approval gates, the internal decision-making, reasoning, and "
-                    "outputs of third-party AI models remain entirely outside our control.\n\n"
-                    "Do you understand and accept full responsibility for actions initiated by your chosen AI assistant?",
-                    parent=win
-                )
-                if not ans:
-                    tier_var.set(1)
-                    agent_bridge.set_active_tier(1)
-                    return
-            agent_bridge.set_active_tier(val, accept_disclaimer=(val >= 2))
-            self.log_ui(f"[AI PERMISSION] Agent permission tier updated to Level {val}.")
-
         for t_val, t_name, t_desc in tiers_info:
-            r_frame = tk.Frame(card_c, bg="#111827")
-            r_frame.pack(fill=tk.X, pady=2)
+            r_frame = tk.Frame(pane_c.content, bg="#111827")
+            r_frame.pack(fill=tk.X, pady=3)
             rb = tk.Radiobutton(
-                r_frame, text=t_name, variable=tier_var, value=t_val, command=_on_tier_change,
-                bg="#111827", fg="#f8fafc", selectcolor="#0f172a", activebackground="#111827",
-                activeforeground="#ffffff", font=("Segoe UI", 9, "bold" if t_val == 1 else "normal")
+                r_frame,
+                text=t_name,
+                variable=self.agent_tier_var,
+                value=t_val,
+                command=lambda v=t_val: self._set_agent_permission_tier(v),
+                bg="#111827", fg="#f8fafc", selectcolor="#0f172a",
+                activebackground="#111827", activeforeground="#ffffff",
+                font=("Segoe UI", 9, "bold" if t_val == 1 else "normal"),
+                anchor="w"
             )
-            rb.pack(side=tk.LEFT)
-            tk.Label(r_frame, text=f"— {t_desc}", bg="#111827", fg="#94a3b8", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=6)
+            rb.pack(fill=tk.X, anchor="w")
+            desc_lbl = tk.Label(
+                r_frame, text=f"   ↳ {t_desc}", bg="#111827", fg="#94a3b8",
+                font=("Segoe UI", 8), justify=tk.LEFT, anchor="w"
+            )
+            desc_lbl.pack(fill=tk.X, anchor="w")
+            CollapsiblePane.bind_responsive_wrap(desc_lbl)
 
-        # Section 4: Responsibility Notice & Safe Quick-Start Guide
-        notice_box = tk.Frame(container, bg="#271c08", highlightbackground="#d97706", highlightthickness=1, padx=14, pady=12)
-        notice_box.pack(fill=tk.X, pady=(6, 16))
+        # ACCORDION 4: Third-Party AI Safety Notice, Quick-Start & Video Tutorials (Collapsed by default)
+        pane_d = CollapsiblePane(
+            acc_container,
+            title="⚠️ Third-Party AI Safety Notice, Quick-Start & Video Tutorials",
+            subtitle="",
+            expanded=False,
+            accent_fg="#fde047",
+            bg_card="#271c08",
+            border_col="#d97706",
+        )
+        pane_d.pack(fill=tk.X, pady=(0, 12))
+        pane_d.bind("<<AccordionToggled>>", _update_left_scroll)
 
-        tk.Label(
-            notice_box,
-            text="⚠️ Third-Party AI Autonomy & Responsibility Notice:",
-            bg="#271c08", fg="#fde047", font=("Segoe UI", 9, "bold"), anchor="w"
-        ).pack(anchor="w")
-
-        tk.Label(
-            notice_box,
+        notice_lbl = tk.Label(
+            pane_d.content,
             text=agent_bridge.AI_RESPONSIBILITY_NOTICE,
-            bg="#271c08", fg="#fef08a", font=("Segoe UI", 8), justify=tk.LEFT, wraplength=920
-        ).pack(anchor="w", pady=(2, 6))
+            bg="#271c08", fg="#fef08a", font=("Segoe UI", 8), justify=tk.LEFT, anchor="w"
+        )
+        notice_lbl.pack(fill=tk.X, anchor="w", pady=(0, 8))
+        CollapsiblePane.bind_responsive_wrap(notice_lbl)
 
-        tk.Label(
-            notice_box,
+        checklist_lbl = tk.Label(
+            pane_d.content,
             text="🛡️ Safe Quick-Start Checklist:\n"
-                 "• 1. Start at Level 1 (Read-Only): Verify AI can inspect specs and open ports before granting any write rights.\n"
+                 "• 1. Start at Level 1 (Read-Only): Verify AI can inspect specs and open ports before granting write rights.\n"
                  "• 2. Use Local STDIO (Zero Open Ports): Connect via stdin/stdout pipes; never expose an unauthenticated HTTP port.\n"
                  "• 3. Review Every Level 2 Popup: Inspect target app names and commands carefully before clicking Approve.\n"
                  "• 4. Create a Restore Point First: Ensure rollback capability before running batch updates.",
-            bg="#271c08", fg="#cbd5e1", font=("Segoe UI", 8), justify=tk.LEFT, wraplength=880
-        ).pack(anchor="w", pady=(2, 6))
+            bg="#271c08", fg="#cbd5e1", font=("Segoe UI", 8), justify=tk.LEFT, anchor="w"
+        )
+        checklist_lbl.pack(fill=tk.X, anchor="w", pady=(0, 8))
+        CollapsiblePane.bind_responsive_wrap(checklist_lbl)
 
-        # Video tutorials and documentation button bar
-        video_bar = tk.Frame(notice_box, bg="#271c08")
-        video_bar.pack(fill=tk.X, pady=(4, 0))
-
-        tk.Label(
-            video_bar, text="🎥 Tutorials & Guides:", bg="#271c08", fg="#fde047", font=("Segoe UI", 8, "bold")
-        ).pack(side=tk.LEFT, padx=(0, 6))
+        video_row1 = tk.Frame(pane_d.content, bg="#271c08")
+        video_row1.pack(fill=tk.X, pady=2)
 
         tk.Button(
-            video_bar, text="🎥 Connect Claude to MCP (9m)",
+            video_row1, text="🎥 Connect Claude to MCP (9m)",
             command=lambda: webbrowser.open("https://www.youtube.com/watch?v=A151Nk_nN_U"),
             bg="#451a03", fg="#fde047", activebackground="#78350f", activeforeground="#ffffff",
-            font=("Segoe UI", 8), relief="flat", padx=6, pady=2, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=3)
+            font=("Segoe UI", 8), relief="flat", padx=7, pady=3, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=(0, 4), pady=2)
 
         tk.Button(
-            video_bar, text="🎥 Securing MCP Servers",
+            video_row1, text="🎥 Securing MCP Servers",
             command=lambda: webbrowser.open("https://www.youtube.com/watch?v=KYWr454hGF0"),
             bg="#451a03", fg="#fde047", activebackground="#78350f", activeforeground="#ffffff",
-            font=("Segoe UI", 8), relief="flat", padx=6, pady=2, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=3)
+            font=("Segoe UI", 8), relief="flat", padx=7, pady=3, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=4, pady=2)
+
+        video_row2 = tk.Frame(pane_d.content, bg="#271c08")
+        video_row2.pack(fill=tk.X, pady=2)
 
         tk.Button(
-            video_bar, text="🎥 Least Privilege for AI (7m)",
+            video_row2, text="🎥 Least Privilege for AI (7m)",
             command=lambda: webbrowser.open("https://www.youtube.com/watch?v=4HiuiYIJRTU"),
             bg="#451a03", fg="#fde047", activebackground="#78350f", activeforeground="#ffffff",
-            font=("Segoe UI", 8), relief="flat", padx=6, pady=2, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=3)
+            font=("Segoe UI", 8), relief="flat", padx=7, pady=3, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=(0, 4), pady=2)
 
         tk.Button(
-            video_bar, text="📖 Best Practices Guide",
+            video_row2, text="📖 Best Practices Guide",
             command=lambda: webbrowser.open("https://modelcontextprotocol.io/docs/draft/tutorials/security/security_best_practices"),
             bg="#1e293b", fg="#93c5fd", activebackground="#334155", activeforeground="#ffffff",
-            font=("Segoe UI", 8), relief="flat", padx=6, pady=2, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=3)
+            font=("Segoe UI", 8), relief="flat", padx=7, pady=3, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=4, pady=2)
 
         def _open_agent_safety_doc():
             p = APP_DIR / "AGENT_SAFETY.md"
@@ -2781,19 +2839,137 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             webbrowser.open("https://github.com/jesusdelira7-956/SoftwareUpdateManager/blob/main/AGENT_SAFETY.md")
 
         tk.Button(
-            video_bar, text="📄 AGENT_SAFETY.md",
+            video_row2, text="📄 AGENT_SAFETY.md",
             command=_open_agent_safety_doc,
             bg="#064e3b", fg="#6ee7b7", activebackground="#047857", activeforeground="#ffffff",
-            font=("Segoe UI", 8, "bold"), relief="flat", padx=6, pady=2, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=3)
+            font=("Segoe UI", 8, "bold"), relief="flat", padx=7, pady=3, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=4, pady=2)
 
-        # Bottom Close Button
-        btn_close_frame = tk.Frame(win, bg="#0b1329", padx=14, pady=8)
-        btn_close_frame.pack(fill=tk.X)
+        # -----------------------------------------------------------------
+        # RIGHT PANE: EMBEDDED LIVE DIAGNOSTIC SCAN OUTPUT CONSOLE
+        # -----------------------------------------------------------------
+        right_outer = tk.Frame(
+            self.ai_split_paned, bg="#111827", highlightbackground="#2a3441", highlightthickness=1, padx=10, pady=10
+        )
+        self.ai_split_paned.add(right_outer, weight=5)
+
+        right_hdr = tk.Frame(right_outer, bg="#111827")
+        right_hdr.pack(fill=tk.X, pady=(0, 6))
+
+        tk.Label(
+            right_hdr,
+            text="🔍 Live PC Diagnostic & Security Scan Output",
+            bg="#111827", fg="#38bdf8", font=("Segoe UI", 10, "bold")
+        ).pack(side=tk.LEFT)
+
+        def _save_diag_report():
+            content = self.diag_console_text.get("1.0", tk.END).strip()
+            if not content:
+                self.run_embedded_diagnostic_scan()
+                return
+            try:
+                from tkinter import filedialog
+                p = filedialog.asksaveasfilename(
+                    parent=self,
+                    title="Save Diagnostic Report",
+                    defaultextension=".md",
+                    filetypes=[("Markdown Document", "*.md"), ("Text Files", "*.txt"), ("All Files", "*.*")],
+                    initialfile="ai_pc_diagnostic_report.md"
+                )
+                if p:
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    messagebox.showinfo("Saved", f"Report saved successfully to:\n{p}", parent=self)
+            except Exception as e:
+                messagebox.showerror("Save Error", f"Failed to save file: {e}", parent=self)
+
+        def _copy_diag_report():
+            content = self.diag_console_text.get("1.0", tk.END).strip()
+            if not content:
+                content = agent_bridge.generate_ai_prompt_bundle()
+            self.clipboard_clear()
+            self.clipboard_append(content)
+            self.lbl_diag_scan_status.config(
+                text="✓ Full diagnostic report copied to clipboard!", fg="#34d399"
+            )
+
         tk.Button(
-            btn_close_frame, text="Close", command=win.destroy,
-            bg="#1e293b", fg="#cbd5e1", font=("Segoe UI", 9), relief="flat", padx=14, pady=4, cursor="hand2"
-        ).pack(side=tk.RIGHT)
+            right_hdr, text="💾 Save to File", command=_save_diag_report,
+            bg="#1e293b", fg="#cbd5e1", activebackground="#334155", activeforeground="#ffffff",
+            font=("Segoe UI", 8, "bold"), relief="flat", padx=8, pady=3, cursor="hand2"
+        ).pack(side=tk.RIGHT, padx=(4, 0))
+
+        tk.Button(
+            right_hdr, text="📋 Copy Report", command=_copy_diag_report,
+            bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff",
+            font=("Segoe UI", 8, "bold"), relief="flat", padx=8, pady=3, cursor="hand2"
+        ).pack(side=tk.RIGHT, padx=4)
+
+        self.lbl_diag_scan_status = tk.Label(
+            right_outer,
+            text="Ready — Click 'Run Live Diagnostic Scan' to generate a fresh sanitized hardware, network & update audit.",
+            bg="#111827", fg="#94a3b8", font=("Segoe UI", 8), anchor="w", justify=tk.LEFT
+        )
+        self.lbl_diag_scan_status.pack(fill=tk.X, anchor="w", pady=(0, 6))
+        CollapsiblePane.bind_responsive_wrap(self.lbl_diag_scan_status)
+
+        console_wrap = tk.Frame(right_outer, bg="#020617", highlightbackground="#1e293b", highlightthickness=1)
+        console_wrap.pack(fill=tk.BOTH, expand=True)
+
+        diag_scroll = ttk.Scrollbar(console_wrap, orient=tk.VERTICAL)
+        diag_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.diag_console_text = tk.Text(
+            console_wrap,
+            bg="#020617", fg="#e2e8f0", insertbackground="#ffffff",
+            font=("Consolas", 9), wrap=tk.WORD, yscrollcommand=diag_scroll.set,
+            padx=10, pady=8, relief="flat"
+        )
+        self.diag_console_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        diag_scroll.config(command=self.diag_console_text.yview)
+
+        # Trigger initial background diagnostic populate once tab is built
+        self.after(900, self.run_embedded_diagnostic_scan)
+
+    def run_embedded_diagnostic_scan(self):
+        """Execute live PC diagnostic scan and render inside the right-hand split console."""
+        if not hasattr(self, "diag_console_text"):
+            return
+        self.lbl_diag_scan_status.config(
+            text="⏳ Scanning hardware specs, listening sockets (0.0.0.0), and package inventory...",
+            fg="#38bdf8"
+        )
+
+        def _async_worker():
+            try:
+                content = agent_bridge.generate_ai_prompt_bundle()
+                def _on_done():
+                    self.diag_console_text.delete("1.0", tk.END)
+                    self.diag_console_text.insert(tk.END, content)
+                    self.lbl_diag_scan_status.config(
+                        text="✓ Live Scan Complete — Hardware health, listening sockets, and package inventory verified.",
+                        fg="#34d399"
+                    )
+                self.after(0, _on_done)
+            except Exception as e:
+                def _on_err():
+                    self.lbl_diag_scan_status.config(text=f"✗ Scan Failed: {e}", fg="#f87171")
+                    self.diag_console_text.delete("1.0", tk.END)
+                    self.diag_console_text.insert(tk.END, f"Error generating diagnostic report:\n{e}")
+                self.after(0, _on_err)
+
+        threading.Thread(target=_async_worker, daemon=True).start()
+
+    def open_live_diagnostic_viewer(self, parent_win=None):
+        """Switch directly to the embedded AI Diagnose & Agent Bridge tab and refresh live scan."""
+        self.notebook.select(self.tab_ai_diagnose)
+        self.run_embedded_diagnostic_scan()
+
+    def open_ai_diagnose_dialog(self):
+        """Switch directly to the embedded AI Diagnose & Agent Bridge tab (eliminates floating modals)."""
+        self.notebook.select(self.tab_ai_diagnose)
+        if hasattr(self, "diag_console_text") and not self.diag_console_text.get("1.0", tk.END).strip():
+            self.run_embedded_diagnostic_scan()
 
     def open_ai_dev_hub(self):
         """Open the Deep AI & Inference Suite Auditor window."""
@@ -3591,10 +3767,6 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             self.win_notice_frame.pack(fill=tk.X, padx=20, pady=(2, 4), before=self.main_paned)
         else:
             self.win_notice_frame.pack_forget()
-
-        # Display Microsoft Store notice banner (Option C)
-        if not self.store_notice_frame.winfo_ismapped():
-            self.store_notice_frame.pack(fill=tk.X, padx=20, pady=(2, 4), before=self.main_paned)
 
         self.lbl_status.config(
             text=f"✅ Scan complete on {self.specs.get('hostname', 'PC')}: {len(self.updates_list)} software updates available across {len(self.installed_apps)} installed apps."
