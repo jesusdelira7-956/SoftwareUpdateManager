@@ -222,6 +222,12 @@ def install_mcp_config_to_client(client_name: str, config_path: Path) -> Tuple[b
             data["mcpServers"] = {}
 
         python_exe = sys.executable or "python"
+        if python_exe.lower().endswith("pythonw.exe"):
+            candidate = python_exe[:-11] + "python.exe"
+            if os.path.exists(candidate):
+                python_exe = candidate
+            else:
+                python_exe = "python"
         bridge_script = str(APP_DIR / "agent_bridge.py")
 
         data["mcpServers"]["software-update-manager"] = {
