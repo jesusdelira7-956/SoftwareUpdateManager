@@ -1,11 +1,11 @@
-# 🛡️ Windows Software Update Manager & Intrusion Shield (v2.4)
+# 🛡️ Windows Software Update Manager & Intrusion Shield (v2.5)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python: 3.9+](https://img.shields.io/badge/Python-3.9%2B-brightgreen.svg)](https://www.python.org/downloads/)
 [![Platform: Windows 10/11](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6.svg)](https://microsoft.com)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow.svg?logo=buy-me-a-coffee)](https://buymeacoffee.com/JesseInTheLab)
 
-A portable, high-performance desktop application for **Windows 10 & Windows 11** that keeps your computer updated, audits hardware specifications, performs deep software inventory, updates software **sequentially one-by-one**, provides an offline/cloud **Pre-Update Security & Trust Gate** against PUPs/adware, defends against network probes and unauthenticated local AI ports with the **Network Boundary Sentinel & Intrusion Shield**, audits all AI suites across Registry/Store/PATH, reconciles developer CLI versions, orchestrates browser updates, and cryptographically verifies each installation.
+A portable, high-performance desktop application for **Windows 10 & Windows 11** that keeps your computer updated, audits hardware specifications, performs deep software inventory, updates software **sequentially one-by-one**, provides an offline/cloud **Pre-Update Security & Trust Gate** against PUPs/adware, defends against network probes with the **Network Boundary Sentinel & Intrusion Shield**, connects safely to external AI assistants via the **4-Tier Local Agent Permission Model & Stdio MCP Server**, audits all AI suites across Registry/Store/PATH, reconciles developer CLI versions, orchestrates browser updates, and cryptographically verifies each installation.
 
 > [!NOTE]
 > **Our Mission:** The purpose of Software Update Manager is to keep the user's computer fully updated while proactively protecting it from unknown network intrusions, exposed local AI ports (`0.0.0.0`), and malicious payloads — **and all for Free & 100% Open-Source.**
@@ -76,7 +76,17 @@ Or double-click **`Run_Update_Manager.bat`**.
 
 ## ✨ Key Features
 
-- **🛡️ Zero-Dependency Network Boundary Sentinel & Intrusion Shield (v2.4 New!)**:
+- **🤖 4-Tier AI Agent Permission Model & Universal PC Diagnostic Bridge (v2.5 New!)**:
+  Exposes verified system diagnostics and update modules to any AI assistant (Microsoft Copilot, Claude Desktop, Antigravity IDE, Cursor, or local LLMs) without violating zero-dependency or intrusion-shield security:
+  - **Universal 1-Click AI Diagnostic Bundle (Option A)**: Compiles an injection-hardened diagnostic summary (Specs, Listening Sockets, Updates) to the clipboard with an expert diagnostic prompt for instant pasting into any web AI.
+  - **Zero-Dependency Stdio MCP Server (`agent_bridge.py` - Option B)**: Connects directly to Claude Desktop, Antigravity, or Cursor using standard `sys.stdin`/`sys.stdout` JSON-RPC. **Zero open TCP ports** (0.0.0.0 or 127.0.0.1) — completely immune to external network probes.
+  - **4-Tier Permission Gatekeeper**:
+    - **Level 0 (Off / Air-Gapped)**: Bridge completely inactive (Zero attack surface).
+    - **Level 1 (Read-Only Diagnostic — Recommended Default)**: Hard read-only whitelist for specs, ports, and updates. Output sanitized against Indirect Prompt Injection (IPI).
+    - **Level 2 (Supervised Remediation)**: Allows single-package upgrades and firewall toggling. Every write operation pauses and requires an interactive confirmation modal in the GUI.
+    - **Level 3 (Autonomous Maintenance)**: Automated sequential batch updates for trusted packages with an automatic Windows System Restore Point and a 30-minute session auto-expiry.
+  - **Third-Party AI Responsibility Notice**: Explicit user disclaimer clarifying that while local permission gates are enforced strictly, third-party AI decision-making remains external and under user responsibility.
+- **🛡️ Zero-Dependency Network Boundary Sentinel & Intrusion Shield (v2.4)**:
   Proactively protects the user's computer from autonomous network exploitation frameworks (e.g. ARTEX threat model), unauthenticated local AI endpoints, and lateral LAN snooping:
   - **Zero-Dependency Socket Auditor (`network_auditor.py`)**: Uses native Windows `netstat` and `tasklist` (100% Python standard library, zero pip packages) to identify all active listening TCP ports across local AI and developer daemons (Ollama 11434, LM Studio 1234, Open WebUI 8081, DwarfStar 8088, Antigravity App Hub 8890, OpenCode 49374, ComfyUI 8188, dev ports 3000-5000, 8000-9000).
   - **Exposure Classification**: Automatically tags every AI tool as `🟢 Localhost (Isolated)` (bound strictly to `127.0.0.1`), `🔴 Exposed to LAN (0.0.0.0)` (bound to all interfaces and reachable from Wi-Fi/LAN devices), or `⚪ Desktop Native (Offline Client)`.
@@ -131,14 +141,23 @@ Or double-click **`Run_Update_Manager.bat`**.
 
 ```text
 SoftwareUpdateManager/
-├── .github/workflows/
-│   └── validate-blocklist.yml   # GitHub Actions CI schema & safety validator
+├── .github/
+│   ├── ISSUE_TEMPLATE/
+│   │   ├── bug_report.md        # Structured bug reporting form
+│   │   └── feature_request.md   # Architectural feature proposal form
+│   ├── workflows/
+│   │   └── validate-blocklist.yml # GitHub Actions CI schema validator
+│   └── pull_request_template.md # PR quality & testing checklist
 ├── scripts/
-│   └── validate_blocklist.py    # Zero-dependency blocklist schema & safety checker
-├── update_manager.py            # Main application & GUI (v2.4 Master Edition)
-├── network_auditor.py           # Network Boundary Sentinel & Intrusion Shield (v2.4)
+│   └── validate_blocklist.py    # Zero-dependency blocklist schema checker
+├── update_manager.py            # Main application & GUI (v2.5 Master Edition)
+├── agent_bridge.py              # Zero-dependency Stdio MCP Server & AI Bridge (v2.5)
+├── network_auditor.py           # Network Boundary Sentinel & Intrusion Shield
 ├── security_auditor.py          # Pre-Update Security & Trust Gate (100% Python stdlib)
 ├── pup_blocklist.json           # Known PUP, adware, and high-risk path definitions
+├── CODE_OF_CONDUCT.md           # Community standards & behavioral pledge
+├── CONTRIBUTING.md              # Contributor guide & zero-pip architecture rules
+├── SECURITY.md                  # Vulnerability reporting & supported versions policy
 ├── Install.cmd                  # 1-click double-clickable installer (Option 2)
 ├── install.ps1                  # Universal remote & local one-liner installer (Option 3)
 ├── build_exe.py                 # Standalone single-file compiler (PyInstaller)
