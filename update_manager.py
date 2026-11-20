@@ -2116,7 +2116,28 @@ Proactively protects your computer against autonomous network scanning platforms
     Inside the "🤖 AI Suites" hub, click "🛡️ Harden Firewall (Block LAN Probes)" to toggle a native Windows Defender Firewall inbound block rule (SoftwareUpdateManager_Block_DevPorts_LAN) that blocks incoming LAN probes on AI/developer ports while preserving 100% full local loopback (127.0.0.1) connectivity.
 
 --------------------------------------------------------------------------------
-5. SPECIALIZED AI & DEV SUITES, BROWSERS & MICROSOFT STORE
+5. AI AGENT INTEGRATION, PERMISSIONS & SAFETY TUTORIALS (v2.5)
+--------------------------------------------------------------------------------
+Software Update Manager allows you to connect AI assistants (Microsoft Copilot, Claude Desktop, Antigravity IDE, Cursor, local LLMs) via a 4-Tier Permission Model and zero-port stdio MCP Server.
+
+⚠️ Third-Party AI Autonomy & Responsibility Notice:
+Connecting external AI agents to your system is an advanced, optional capability. While Software Update Manager enforces strict local permission boundaries and approval gates, the internal decision-making, reasoning, and outputs of third-party AI models remain entirely outside our control. By enabling live agent integration, you acknowledge and assume full responsibility for actions initiated by your chosen AI assistant.
+
+🛡️ Safe Quick-Start Checklist:
+  1. Start at Level 1 (Read-Only Diagnostic): Leave the permission tier on Level 1 for your first run. The AI can audit specs, updates, and open ports without altering any files.
+  2. Use Local STDIO (Zero Open Ports): Connect desktop clients via local stdio (sys.stdin/sys.stdout) rather than opening HTTP ports on your LAN.
+  3. Review Every Level 2 Approval Prompt: Always read the target app name and command before clicking Approve. Never approve actions on unverified packages.
+  4. Create a Restore Point First: Auto-create a Windows System Restore Point before Level 3 autonomous batches.
+
+🎥 Curated Video Tutorials & Learning:
+  • Easy Connect Claude Desktop to MCP (Windows): https://www.youtube.com/watch?v=A151Nk_nN_U
+  • Securing the MCP Server (What You Need to Know): https://www.youtube.com/watch?v=KYWr454hGF0
+  • Least Privilege for AI Agents (Shrinking Blast Radius): https://www.youtube.com/watch?v=4HiuiYIJRTU
+  • Official MCP Security Best Practices: https://modelcontextprotocol.io/docs/draft/tutorials/security/security_best_practices
+  • Full Safety Guide: Read AGENT_SAFETY.md in the application directory.
+
+--------------------------------------------------------------------------------
+6. SPECIALIZED AI & DEV SUITES, BROWSERS & MICROSOFT STORE
 --------------------------------------------------------------------------------
   • 🤖 AI & Dev Tools:
     Click the "🤖 AI & Dev Tools" button in the filter toolbar to instantly select and prioritize updates for AI assistants and developer suites (Antigravity IDE, Cursor, VS Code, Android Studio, GitHub Copilot, Ollama, LM Studio, Pinokio, Docker Desktop, etc.).
@@ -2126,7 +2147,7 @@ Proactively protects your computer against autonomous network scanning platforms
     Click "🛍️ Store Apps" or use the top banner to trigger the Windows Store background update service (InstallService) and launch the Microsoft Store directly to "Updates & downloads" where queued updates (Notepad, Paint, Xbox, Snipping Tool, HP) can be monitored and updated.
 
 --------------------------------------------------------------------------------
-6. HOW TO UPDATE YOUR SOFTWARE
+7. HOW TO UPDATE YOUR SOFTWARE
 --------------------------------------------------------------------------------
   • Update Everything Sequentially:
     Click "⚡ Push All Updates (One-by-One)". The app downloads and installs updates strictly one at a time so installers never collide or lock the same system files.
@@ -2138,7 +2159,7 @@ Proactively protects your computer against autonomous network scanning platforms
     Click "⏹ Stop Batch" at any time during updates; the app will safely finish the current installer and stop before starting the next one.
 
 --------------------------------------------------------------------------------
-7. MEANING OF UPDATE STATUS BADGES
+8. MEANING OF UPDATE STATUS BADGES
 --------------------------------------------------------------------------------
   • Pending Update (Blue)     : A newer version is available and ready to install.
   • Installing... (Amber)     : Winget is currently downloading and running the installer.
@@ -2148,7 +2169,7 @@ Proactively protects your computer against autonomous network scanning platforms
   • ✗ Failed                  : The installer returned an error code. Check the live log for details.
 
 --------------------------------------------------------------------------------
-8. WHY ADMINISTRATOR MODE IS ENABLED AT STARTUP
+9. WHY ADMINISTRATOR MODE IS ENABLED AT STARTUP
 --------------------------------------------------------------------------------
 Many system applications (such as Visual C++ Redistributables, .NET Runtimes, VLC, 7-Zip, and Hardware Drivers) require Administrator rights to update files in "C:\\Program Files".
 By requesting Administrator elevation once when the app starts (shown by the green "🛡️ Administrator" badge in the top-right), all updates run smoothly without interrupting you with repeated UAC prompts.
@@ -2490,15 +2511,84 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             rb.pack(side=tk.LEFT)
             tk.Label(r_frame, text=f"— {t_desc}", bg="#111827", fg="#94a3b8", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=6)
 
-        # Section 4: Responsibility Notice Callout
-        notice_box = tk.Frame(container, bg="#271c08", highlightbackground="#d97706", highlightthickness=1, padx=12, pady=8)
+        # Section 4: Responsibility Notice & Safe Quick-Start Guide
+        notice_box = tk.Frame(container, bg="#271c08", highlightbackground="#d97706", highlightthickness=1, padx=14, pady=10)
         notice_box.pack(fill=tk.X, pady=6)
 
         tk.Label(
             notice_box,
-            text=f"⚠️ {agent_bridge.AI_RESPONSIBILITY_NOTICE}",
-            bg="#271c08", fg="#fef08a", font=("Segoe UI", 8), justify=tk.LEFT, wraplength=880
+            text="⚠️ Third-Party AI Autonomy & Responsibility Notice:",
+            bg="#271c08", fg="#fde047", font=("Segoe UI", 9, "bold"), anchor="w"
         ).pack(anchor="w")
+
+        tk.Label(
+            notice_box,
+            text=agent_bridge.AI_RESPONSIBILITY_NOTICE,
+            bg="#271c08", fg="#fef08a", font=("Segoe UI", 8), justify=tk.LEFT, wraplength=880
+        ).pack(anchor="w", pady=(2, 6))
+
+        tk.Label(
+            notice_box,
+            text="🛡️ Safe Quick-Start Checklist:\n"
+                 "• 1. Start at Level 1 (Read-Only): Verify AI can inspect specs and open ports before granting any write rights.\n"
+                 "• 2. Use Local STDIO (Zero Open Ports): Connect via stdin/stdout pipes; never expose an unauthenticated HTTP port.\n"
+                 "• 3. Review Every Level 2 Popup: Inspect target app names and commands carefully before clicking Approve.\n"
+                 "• 4. Create a Restore Point First: Ensure rollback capability before running batch updates.",
+            bg="#271c08", fg="#cbd5e1", font=("Segoe UI", 8), justify=tk.LEFT, wraplength=880
+        ).pack(anchor="w", pady=(2, 6))
+
+        # Video tutorials and documentation button bar
+        video_bar = tk.Frame(notice_box, bg="#271c08")
+        video_bar.pack(fill=tk.X, pady=(4, 0))
+
+        tk.Label(
+            video_bar, text="🎥 Tutorials & Guides:", bg="#271c08", fg="#fde047", font=("Segoe UI", 8, "bold")
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        tk.Button(
+            video_bar, text="🎥 Connect Claude to MCP (9m)",
+            command=lambda: webbrowser.open("https://www.youtube.com/watch?v=A151Nk_nN_U"),
+            bg="#451a03", fg="#fde047", activebackground="#78350f", activeforeground="#ffffff",
+            font=("Segoe UI", 8), relief="flat", padx=6, pady=2, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=3)
+
+        tk.Button(
+            video_bar, text="🎥 Securing MCP Servers",
+            command=lambda: webbrowser.open("https://www.youtube.com/watch?v=KYWr454hGF0"),
+            bg="#451a03", fg="#fde047", activebackground="#78350f", activeforeground="#ffffff",
+            font=("Segoe UI", 8), relief="flat", padx=6, pady=2, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=3)
+
+        tk.Button(
+            video_bar, text="🎥 Least Privilege for AI (7m)",
+            command=lambda: webbrowser.open("https://www.youtube.com/watch?v=4HiuiYIJRTU"),
+            bg="#451a03", fg="#fde047", activebackground="#78350f", activeforeground="#ffffff",
+            font=("Segoe UI", 8), relief="flat", padx=6, pady=2, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=3)
+
+        tk.Button(
+            video_bar, text="📖 Best Practices Guide",
+            command=lambda: webbrowser.open("https://modelcontextprotocol.io/docs/draft/tutorials/security/security_best_practices"),
+            bg="#1e293b", fg="#93c5fd", activebackground="#334155", activeforeground="#ffffff",
+            font=("Segoe UI", 8), relief="flat", padx=6, pady=2, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=3)
+
+        def _open_agent_safety_doc():
+            p = APP_DIR / "AGENT_SAFETY.md"
+            if p.exists():
+                try:
+                    os.startfile(p)
+                    return
+                except Exception:
+                    pass
+            webbrowser.open("https://github.com/jesusdelira7-956/SoftwareUpdateManager/blob/main/AGENT_SAFETY.md")
+
+        tk.Button(
+            video_bar, text="📄 AGENT_SAFETY.md",
+            command=_open_agent_safety_doc,
+            bg="#064e3b", fg="#6ee7b7", activebackground="#047857", activeforeground="#ffffff",
+            font=("Segoe UI", 8, "bold"), relief="flat", padx=6, pady=2, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=3)
 
         # Bottom Close Button
         btn_close_frame = tk.Frame(win, bg="#0b1329", padx=14, pady=8)

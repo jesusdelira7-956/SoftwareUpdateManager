@@ -158,6 +158,7 @@ SoftwareUpdateManager/
 ├── CODE_OF_CONDUCT.md           # Community standards & behavioral pledge
 ├── CONTRIBUTING.md              # Contributor guide & zero-pip architecture rules
 ├── SECURITY.md                  # Vulnerability reporting & supported versions policy
+├── AGENT_SAFETY.md              # AI Agent integration, least privilege & video guides
 ├── Install.cmd                  # 1-click double-clickable installer (Option 2)
 ├── install.ps1                  # Universal remote & local one-liner installer (Option 3)
 ├── build_exe.py                 # Standalone single-file compiler (PyInstaller)
