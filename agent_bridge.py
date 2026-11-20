@@ -192,13 +192,18 @@ def detect_mcp_clients() -> Dict[str, Path]:
 
     # 1. Claude Desktop
     claude_cfg = Path(os.path.expandvars(r"%APPDATA%\Claude\claude_desktop_config.json"))
-    if claude_cfg.parent.exists():
+    if claude_cfg.parent.exists() or find_mcp_client_launcher("Claude Desktop"):
         found["Claude Desktop"] = claude_cfg
 
     # 2. Antigravity IDE / Workspace
     ag_cfg = Path(os.path.expandvars(r"%USERPROFILE%\.gemini\antigravity\mcp_config.json"))
-    if ag_cfg.parent.exists():
+    if ag_cfg.parent.exists() or find_mcp_client_launcher("Antigravity IDE"):
         found["Antigravity IDE"] = ag_cfg
+
+    # 3. Cursor
+    cursor_cfg = Path(os.path.expandvars(r"%USERPROFILE%\.cursor\mcp.json"))
+    if find_mcp_client_launcher("Cursor") or cursor_cfg.parent.exists():
+        found["Cursor"] = cursor_cfg
 
     return found
 
@@ -222,6 +227,12 @@ def install_mcp_config_to_client(client_name: str, config_path: Path) -> Tuple[b
             data["mcpServers"] = {}
 
         python_exe = sys.executable or "python"
+        if python_exe.lower().endswith("pythonw.exe"):
+            candidate = python_exe[:-11] + "python.exe"
+            if os.path.exists(candidate):
+                python_exe = candidate
+            else:
+                python_exe = "python"
         bridge_script = str(APP_DIR / "agent_bridge.py")
 
         data["mcpServers"]["software-update-manager"] = {
@@ -236,6 +247,50 @@ def install_mcp_config_to_client(client_name: str, config_path: Path) -> Tuple[b
         return True, f"Successfully registered with {client_name} at:\n{config_path}"
     except Exception as e:
         return False, f"Failed to configure {client_name}: {e}"
+
+
+def find_mcp_client_launcher(client_name: str) -> Optional[str]:
+    """Find executable or shortcut path to launch the local MCP client."""
+    c_lower = client_name.lower()
+    candidates = []
+
+    if "antigravity" in c_lower:
+        candidates = [
+            os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Antigravity IDE\Antigravity IDE.lnk"),
+            os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Antigravity.lnk"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Antigravity\Antigravity.exe"),
+            os.path.expandvars(r"%USERPROFILE%\Desktop\AntiGravity Master Hub.lnk"),
+        ]
+    elif "claude" in c_lower:
+        candidates = [
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Claude\Claude.exe"),
+            os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Claude.lnk"),
+            os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Anthropic\Claude.lnk"),
+        ]
+    elif "cursor" in c_lower:
+        candidates = [
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\cursor\Cursor.exe"),
+            os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Cursor\Cursor.lnk"),
+            os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Cursor.lnk"),
+            os.path.expandvars(r"%USERPROFILE%\Desktop\Cursor.lnk"),
+        ]
+
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return None
+
+
+def launch_mcp_client(client_name: str) -> Tuple[bool, str]:
+    """Launch the client application using Windows Shell."""
+    launcher = find_mcp_client_launcher(client_name)
+    if launcher:
+        try:
+            os.startfile(launcher)
+            return True, f"Launched {client_name}"
+        except Exception as e:
+            return False, f"Failed to launch {client_name}: {e}"
+    return False, f"Could not locate launcher executable or shortcut for {client_name}."
 
 
 # ----------------------------------------------------------------------

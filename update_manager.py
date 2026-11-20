@@ -2288,6 +2288,113 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             self.log_ui(f"[FILTER] Highlighted {len(matched)} AI / Developer tool(s) for update.")
         self.open_ai_dev_hub()
 
+    def open_live_diagnostic_viewer(self, parent_win=None):
+        """Run and display the live PC diagnostic scan in a clean dedicated viewer window."""
+        win = tk.Toplevel(parent_win or self)
+        win.title("🔍 Live PC Diagnostic & Security Scan — Software Update Manager")
+        win.geometry("900x640")
+        win.minsize(780, 500)
+        win.configure(bg="#0b1329")
+        win.transient(parent_win or self)
+
+        try:
+            p = parent_win or self
+            x = p.winfo_rootx() + (p.winfo_width() // 2) - 450
+            y = p.winfo_rooty() + (p.winfo_height() // 2) - 320
+            win.geometry(f"+{max(10, x)}+{max(10, y)}")
+        except Exception:
+            pass
+
+        hdr = tk.Frame(win, bg="#131c38", padx=14, pady=10, highlightbackground="#3b82f6", highlightthickness=1)
+        hdr.pack(fill=tk.X, padx=12, pady=(10, 6))
+
+        tk.Label(
+            hdr, text="🔍 Live PC Diagnostic & Security Scan",
+            bg="#131c38", fg="#60a5fa", font=("Segoe UI", 12, "bold")
+        ).pack(anchor="w")
+
+        status_lbl = tk.Label(
+            hdr, text="⏳ Scanning hardware specs, listening sockets, and package inventory...",
+            bg="#131c38", fg="#94a3b8", font=("Segoe UI", 9)
+        )
+        status_lbl.pack(anchor="w", pady=(2, 0))
+
+        txt_frame = tk.Frame(win, bg="#0b1329")
+        txt_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
+
+        scroll = ttk.Scrollbar(txt_frame, orient=tk.VERTICAL)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        diag_text = tk.Text(
+            txt_frame, bg="#020617", fg="#e2e8f0", insertbackground="#ffffff",
+            font=("Consolas", 10), wrap=tk.WORD, yscrollcommand=scroll.set,
+            padx=12, pady=10, relief="flat", highlightbackground="#1e293b", highlightthickness=1
+        )
+        diag_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.config(command=diag_text.yview)
+
+        act_bar = tk.Frame(win, bg="#0b1329", pady=8)
+        act_bar.pack(fill=tk.X, padx=12)
+
+        def _copy_report():
+            win.clipboard_clear()
+            win.clipboard_append(diag_text.get("1.0", tk.END))
+            messagebox.showinfo("Copied", "Full diagnostic report copied to clipboard!", parent=win)
+
+        def _save_report():
+            try:
+                from tkinter import filedialog
+                p = filedialog.asksaveasfilename(
+                    parent=win,
+                    title="Save Diagnostic Report",
+                    defaultextension=".md",
+                    filetypes=[("Markdown Document", "*.md"), ("Text Files", "*.txt"), ("All Files", "*.*")],
+                    initialfile="ai_pc_diagnostic_report.md"
+                )
+                if p:
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.write(diag_text.get("1.0", tk.END))
+                    messagebox.showinfo("Saved", f"Report saved successfully to:\n{p}", parent=win)
+            except Exception as e:
+                messagebox.showerror("Save Error", f"Failed to save file: {e}", parent=win)
+
+        tk.Button(
+            act_bar, text="📋 Copy Report", command=_copy_report,
+            bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        tk.Button(
+            act_bar, text="💾 Save to File", command=_save_report,
+            bg="#1e293b", fg="#cbd5e1", activebackground="#334155", activeforeground="#ffffff",
+            font=("Segoe UI", 9), relief="flat", padx=10, pady=5, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=4)
+
+        tk.Button(
+            act_bar, text="✖ Close", command=win.destroy,
+            bg="#334155", fg="#e2e8f0", activebackground="#475569", activeforeground="#ffffff",
+            font=("Segoe UI", 9), relief="flat", padx=12, pady=5, cursor="hand2"
+        ).pack(side=tk.RIGHT)
+
+        def _async_scan():
+            try:
+                content = agent_bridge.generate_ai_prompt_bundle()
+                def _update_ui():
+                    diag_text.delete("1.0", tk.END)
+                    diag_text.insert(tk.END, content)
+                    status_lbl.config(
+                        text="✓ Scan Complete — Hardware health, listening sockets, and package inventory verified.",
+                        fg="#34d399"
+                    )
+                win.after(0, _update_ui)
+            except Exception as e:
+                def _err_ui():
+                    status_lbl.config(text=f"✗ Scan Failed: {e}", fg="#f87171")
+                    diag_text.insert(tk.END, f"Error generating diagnostic report:\n{e}")
+                win.after(0, _err_ui)
+
+        threading.Thread(target=_async_scan, daemon=True).start()
+
     def open_ai_diagnose_dialog(self):
         """Open the Universal AI PC Diagnostic & Local Agent Bridge window."""
         win = tk.Toplevel(self)
@@ -2309,17 +2416,28 @@ By requesting Administrator elevation once when the app starts (shown by the gre
         header_frame = tk.Frame(win, bg="#131c38", padx=16, pady=12, highlightbackground="#3b82f6", highlightthickness=1)
         header_frame.pack(fill=tk.X, padx=14, pady=(12, 8))
 
+        title_col = tk.Frame(header_frame, bg="#131c38")
+        title_col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
         tk.Label(
-            header_frame,
+            title_col,
             text="🤖 AI PC Diagnose & Local Agent Bridge (v2.5)",
             bg="#131c38", fg="#60a5fa", font=("Segoe UI", 13, "bold"), anchor="w"
         ).pack(anchor="w")
 
         tk.Label(
-            header_frame,
+            title_col,
             text="Generate sanitized diagnostic prompt bundles for any web AI, or connect desktop agents (Claude, Antigravity) via zero-port stdio MCP.",
             bg="#131c38", fg="#94a3b8", font=("Segoe UI", 9), anchor="w"
         ).pack(anchor="w", pady=(2, 0))
+
+        tk.Button(
+            header_frame,
+            text="🔍 Run Diagnostic Scan Now",
+            command=lambda: self.open_live_diagnostic_viewer(win),
+            bg="#059669", fg="#ffffff", activebackground="#047857", activeforeground="#ffffff",
+            font=("Segoe UI", 10, "bold"), relief="flat", padx=14, pady=6, cursor="hand2"
+        ).pack(side=tk.RIGHT, padx=4)
 
         # Main scrollable canvas / container
         container = tk.Frame(win, bg="#0b1329", padx=14)
@@ -2423,6 +2541,7 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                 messagebox.showinfo("MCP Auto-Configuration Result", "\n\n".join(msgs), parent=win)
                 status_lbl_b.config(text=f"✓ Auto-configured: {c_names}")
                 status_lbl_b.pack(anchor="w", pady=(6, 0))
+                _refresh_launch_buttons()
 
         def _copy_mcp_json():
             py_exe = sys.executable or "python"
@@ -2452,6 +2571,54 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             bg="#1e293b", fg="#cbd5e1", activebackground="#334155", activeforeground="#ffffff",
             font=("Segoe UI", 9), relief="flat", padx=10, pady=5, cursor="hand2"
         ).pack(side=tk.LEFT, padx=4)
+
+        # Launch buttons for detected local MCP clients
+        launch_frame_b = tk.Frame(card_b, bg="#111827")
+        launch_frame_b.pack(fill=tk.X, pady=(8, 0))
+
+        def _refresh_launch_buttons():
+            for w in launch_frame_b.winfo_children():
+                w.destroy()
+            clients = agent_bridge.detect_mcp_clients()
+            found_any = False
+            for c_name in clients:
+                launcher = agent_bridge.find_mcp_client_launcher(c_name)
+                if launcher:
+                    found_any = True
+                    def _launch_app(name=c_name):
+                        prompt = (
+                            "Please run a complete PC diagnostic using Software Update Manager "
+                            "(check hardware specs, listening sockets, and pending updates) "
+                            "and report any security risks or software needing attention."
+                        )
+                        win.clipboard_clear()
+                        win.clipboard_append(prompt)
+                        ok, msg = agent_bridge.launch_mcp_client(name)
+                        if ok:
+                            status_lbl_b.config(
+                                text=f"✓ Opened {name}! Diagnostic prompt copied to clipboard — paste with Ctrl+V.",
+                                fg="#34d399"
+                            )
+                            status_lbl_b.pack(anchor="w", pady=(6, 0))
+                        else:
+                            messagebox.showwarning("Launch Warning", msg, parent=win)
+
+                    tk.Button(
+                        launch_frame_b,
+                        text=f"🚀 Open {c_name} to Continue",
+                        command=_launch_app,
+                        bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff",
+                        font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=5, cursor="hand2"
+                    ).pack(side=tk.LEFT, padx=(0, 8))
+
+            if found_any:
+                tk.Label(
+                    launch_frame_b,
+                    text="← Click to launch your local AI assistant & auto-copy starter diagnostic prompt",
+                    bg="#111827", fg="#94a3b8", font=("Segoe UI", 8, "italic")
+                ).pack(side=tk.LEFT)
+
+        _refresh_launch_buttons()
 
         # Section 3: 4-Tier Permission Gatekeeper
         card_c = tk.Frame(container, bg="#111827", padx=14, pady=12, highlightbackground="#1f2937", highlightthickness=1)
