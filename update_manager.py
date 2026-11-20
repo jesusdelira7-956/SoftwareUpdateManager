@@ -2399,22 +2399,31 @@ By requesting Administrator elevation once when the app starts (shown by the gre
         """Open the Universal AI PC Diagnostic & Local Agent Bridge window."""
         win = tk.Toplevel(self)
         win.title("🤖 AI PC Diagnose & Local Agent Bridge — Software Update Manager")
-        win.geometry("960x680")
-        win.minsize(860, 560)
+        win.geometry("1020x760")
+        win.minsize(900, 600)
         win.configure(bg="#0b1329")
         win.transient(self)
 
         # Center over parent
         try:
-            x = self.winfo_rootx() + (self.winfo_width() // 2) - 480
-            y = self.winfo_rooty() + (self.winfo_height() // 2) - 340
+            x = self.winfo_rootx() + (self.winfo_width() // 2) - 510
+            y = self.winfo_rooty() + (self.winfo_height() // 2) - 380
             win.geometry(f"+{max(10, x)}+{max(10, y)}")
         except Exception:
             pass
 
-        # Top Banner
+        # Top Banner (Always Fixed at Top)
         header_frame = tk.Frame(win, bg="#131c38", padx=16, pady=12, highlightbackground="#3b82f6", highlightthickness=1)
         header_frame.pack(fill=tk.X, padx=14, pady=(12, 8))
+
+        # Pack Right-Side Action Button FIRST to guarantee full un-truncated width
+        tk.Button(
+            header_frame,
+            text="🔍 Run Diagnostic Scan Now",
+            command=lambda: self.open_live_diagnostic_viewer(win),
+            bg="#059669", fg="#ffffff", activebackground="#047857", activeforeground="#ffffff",
+            font=("Segoe UI", 10, "bold"), relief="flat", padx=16, pady=6, cursor="hand2"
+        ).pack(side=tk.RIGHT, padx=(12, 0))
 
         title_col = tk.Frame(header_frame, bg="#131c38")
         title_col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -2431,17 +2440,38 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             bg="#131c38", fg="#94a3b8", font=("Segoe UI", 9), anchor="w"
         ).pack(anchor="w", pady=(2, 0))
 
-        tk.Button(
-            header_frame,
-            text="🔍 Run Diagnostic Scan Now",
-            command=lambda: self.open_live_diagnostic_viewer(win),
-            bg="#059669", fg="#ffffff", activebackground="#047857", activeforeground="#ffffff",
-            font=("Segoe UI", 10, "bold"), relief="flat", padx=14, pady=6, cursor="hand2"
-        ).pack(side=tk.RIGHT, padx=4)
+        # Scrollable Canvas Container so all content (including Third-Party Notice) is 100% visible
+        canvas_container = tk.Frame(win, bg="#0b1329")
+        canvas_container.pack(fill=tk.BOTH, expand=True)
 
-        # Main scrollable canvas / container
-        container = tk.Frame(win, bg="#0b1329", padx=14)
-        container.pack(fill=tk.BOTH, expand=True)
+        canvas = tk.Canvas(canvas_container, bg="#0b1329", highlightthickness=0)
+        v_scroll = ttk.Scrollbar(canvas_container, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=v_scroll.set)
+
+        v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        container = tk.Frame(canvas, bg="#0b1329", padx=14)
+        canvas_win = canvas.create_window((0, 0), window=container, anchor="nw")
+
+        def _on_container_configure(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event):
+            canvas.itemconfig(canvas_win, width=event.width)
+
+        container.bind("<Configure>", _on_container_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        def _on_mousewheel(event):
+            try:
+                if canvas.winfo_exists():
+                    canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            except Exception:
+                pass
+
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        win.bind("<Destroy>", lambda e: canvas.unbind_all("<MouseWheel>"))
 
         # Section 1: Option A — Universal 1-Click Diagnostic Bundle
         card_a = tk.Frame(container, bg="#111827", padx=14, pady=12, highlightbackground="#1f2937", highlightthickness=1)
@@ -2679,8 +2709,8 @@ By requesting Administrator elevation once when the app starts (shown by the gre
             tk.Label(r_frame, text=f"— {t_desc}", bg="#111827", fg="#94a3b8", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=6)
 
         # Section 4: Responsibility Notice & Safe Quick-Start Guide
-        notice_box = tk.Frame(container, bg="#271c08", highlightbackground="#d97706", highlightthickness=1, padx=14, pady=10)
-        notice_box.pack(fill=tk.X, pady=6)
+        notice_box = tk.Frame(container, bg="#271c08", highlightbackground="#d97706", highlightthickness=1, padx=14, pady=12)
+        notice_box.pack(fill=tk.X, pady=(6, 16))
 
         tk.Label(
             notice_box,
@@ -2691,7 +2721,7 @@ By requesting Administrator elevation once when the app starts (shown by the gre
         tk.Label(
             notice_box,
             text=agent_bridge.AI_RESPONSIBILITY_NOTICE,
-            bg="#271c08", fg="#fef08a", font=("Segoe UI", 8), justify=tk.LEFT, wraplength=880
+            bg="#271c08", fg="#fef08a", font=("Segoe UI", 8), justify=tk.LEFT, wraplength=920
         ).pack(anchor="w", pady=(2, 6))
 
         tk.Label(
