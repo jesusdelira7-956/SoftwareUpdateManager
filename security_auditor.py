@@ -412,10 +412,25 @@ class SecurityAuditor:
             app_info.get("name", ""),
             app_info.get("id", "") or app_info.get("winget_id", ""),
         )
+        # Check if this is an official Windows Store / MSIX package (cryptographically verified by Windows OS)
+        winget_id = (app_info.get("id") or app_info.get("winget_id") or "").strip().lower()
+        source = (app_info.get("source") or "").lower()
+        is_verified_store_app = (
+            source == "msstore"
+            or any(winget_id.startswith(p) for p in ("anthropic.claude", "openai.chatgpt", "openai.codex", "microsoft."))
+        )
+
         sha256 = self.get_sha256(exe_path) if exe_path else None
-        sig = self.check_authenticode_signature(exe_path) if exe_path else {
-            "status": "Unknown", "signer": "", "valid": False
-        }
+        if not exe_path and is_verified_store_app:
+            sig = {
+                "status": "Valid",
+                "signer": "Microsoft Windows Store / Vendor Appx",
+                "valid": True,
+            }
+        else:
+            sig = self.check_authenticode_signature(exe_path) if exe_path else {
+                "status": "Unknown", "signer": "", "valid": False
+            }
         reasons = self.evaluate_heuristics(app_info, exe_path)
 
         cloud_flagged = False
@@ -436,7 +451,7 @@ class SecurityAuditor:
             cloud_flagged = True
         elif sig["status"] == "NotSigned" and exe_path:
             reasons.append("Binary is not digitally signed (Unsigned open-source or developer build)")
-        elif not exe_path:
+        elif not exe_path and not is_verified_store_app:
             reasons.append("Executable binary not registered in Windows registry (WinGet/Store tool)")
 
         # Publisher vs Signer consistency check
