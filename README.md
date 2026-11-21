@@ -8,6 +8,7 @@
 
 [![Download Standalone EXE](https://img.shields.io/badge/⬇_Download_.EXE-SoftwareUpdateManager_v2.5.0-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/jesusdelira7-956/SoftwareUpdateManager/releases/latest)
 [![Buy Me A Coffee](https://img.shields.io/badge/☕_Buy_Me_A_Coffee-Support_Development-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/JesseInTheLab)
+[![Universal Linux Edition](https://img.shields.io/badge/🐧_Universal_Linux_Edition-Also_Available-E95420?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/jesusdelira7-956/SoftwareUpdateManager-Linux)
 
 [![GitHub Release](https://img.shields.io/github/v/release/jesusdelira7-956/SoftwareUpdateManager?style=flat-square&label=Latest%20Release&color=brightgreen)](https://github.com/jesusdelira7-956/SoftwareUpdateManager/releases/latest)
 [![Zero Dependencies](https://img.shields.io/badge/Dependencies-0%20(100%25%20Python%20Stdlib)-success?style=flat-square)](requirements.txt)
