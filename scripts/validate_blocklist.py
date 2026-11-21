@@ -2,6 +2,13 @@ import json
 import sys
 from pathlib import Path
 
+# Ensure UTF-8 output on Windows consoles and CI environments
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 BLOCKLIST_FILE = Path("pup_blocklist.json")
 
 REQUIRED_KEYS = {
@@ -116,7 +123,10 @@ def main() -> None:
                         "(e.g., '\\\\appdata\\\\local\\\\temp\\\\')."
                     )
 
-    print("✅ pup_blocklist.json passed all schema, safety, and duplicate checks!")
+    try:
+        print("✅ pup_blocklist.json passed all schema, safety, and duplicate checks!")
+    except UnicodeEncodeError:
+        print("[OK] pup_blocklist.json passed all schema, safety, and duplicate checks!")
 
 
 if __name__ == "__main__":
