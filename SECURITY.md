@@ -48,3 +48,9 @@ Our codebase enforces the following defensive guarantees:
 4. **Network Boundary Isolation:** Audits listening TCP ports and offers 1-click native Defender Firewall hardening for local dev/AI endpoints.
 5. **Input Sanitization:** Strips command separators and prompt injection tokens from untrusted package metadata.
 6. **4-Tier AI Agent Permission Gatekeeper:** External AI assistants access diagnostic tools strictly through zero-port stdio JSON-RPC. Mutating operations (Level 2/3) enforce mandatory interactive confirmation modals, session timeouts, and automatic Windows System Restore Points.
+
+---
+
+## Privacy & Anti-Solicitation Policy
+
+> **Notice:** Automated repository scraping, third-party "trust index" badge-farming, contact email harvesting, and unsolicited commercial outreach regarding this repository are strictly unwelcome. All legitimate security disclosures, questions, and collaboration must be submitted exclusively through **GitHub Issues** or **GitHub Security Advisories**. Please respect developer privacy.
