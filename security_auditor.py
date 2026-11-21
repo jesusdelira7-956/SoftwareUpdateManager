@@ -14,6 +14,7 @@ import os
 import re
 import sys
 import json
+import shutil
 import hashlib
 import subprocess
 import urllib.request
@@ -21,6 +22,62 @@ import urllib.parse
 import urllib.error
 from pathlib import Path
 from typing import Dict, List, Optional
+
+
+# Known legitimate vendor publisher <-> certificate signer alias mapping
+TRUSTED_PUBLISHER_SIGNER_ALIASES = {
+    # Git for Windows: maintained and signed by Johannes Schindelin
+    "the git development community": ["johannes schindelin", "git for windows"],
+    "johannes schindelin": ["the git development community", "git", "git for windows"],
+    # LM Studio / Bionic: corporate entity Element Labs Inc.
+    "lm studio": ["element labs inc.", "element labs", "elementlabs", "bionic"],
+    "element labs inc.": ["lm studio", "element labs", "bionic"],
+    "element labs": ["lm studio", "element labs inc.", "bionic"],
+    # Google LLC
+    "google": ["google llc", "google inc"],
+    "google llc": ["google", "google inc"],
+    # GitHub / Microsoft
+    "github, inc.": ["github", "github inc", "microsoft"],
+    "github inc.": ["github", "github, inc.", "microsoft"],
+    "github": ["github, inc.", "github inc", "microsoft"],
+    # Mozilla
+    "mozilla": ["mozilla corporation", "mozilla foundation"],
+    "mozilla corporation": ["mozilla", "mozilla foundation"],
+}
+
+
+def is_publisher_signer_aligned(pub: str, signer: str) -> bool:
+    """Checks if executable signer is aligned with registry publisher or known aliases."""
+    if not pub or not signer:
+        return True
+    p_lower = pub.strip().lower()
+    s_lower = signer.strip().lower()
+
+    # 1. Direct or substring match
+    if p_lower in s_lower or s_lower in p_lower:
+        return True
+
+    # 2. Word intersection (ignoring corporate suffix stop words)
+    stop_words = {"inc", "corp", "corporation", "llc", "ltd", "limited", "the", "and", "co", "company"}
+    p_words = set(re.findall(r"\w+", p_lower)) - stop_words
+    s_words = set(re.findall(r"\w+", s_lower)) - stop_words
+    if p_words and s_words and p_words.intersection(s_words):
+        return True
+
+    # 3. Known trusted publisher / signer aliases
+    for key, aliases in TRUSTED_PUBLISHER_SIGNER_ALIASES.items():
+        if key in p_lower or p_lower == key:
+            if any(alias in s_lower or s_lower == alias for alias in aliases):
+                return True
+        if key in s_lower or s_lower == key:
+            if any(alias in p_lower or p_lower == alias for alias in aliases):
+                return True
+
+    # 4. Microsoft ecosystem components
+    if "microsoft" in p_lower and "microsoft" in s_lower:
+        return True
+
+    return False
 
 
 class SecurityAuditor:
@@ -85,10 +142,16 @@ class SecurityAuditor:
     # 1. EXECUTABLE RESOLUTION & SHA-256 HASHING
     # -----------------------------------------------------------------
     @staticmethod
-    def resolve_executable_path(display_icon: str, install_location: str, uninstall_string: str = "") -> Optional[str]:
+    def resolve_executable_path(
+        display_icon: str,
+        install_location: str,
+        uninstall_string: str = "",
+        app_name: str = "",
+        pkg_id: str = "",
+    ) -> Optional[str]:
         """
         Extracts a clean executable path from Windows Registry DisplayIcon,
-        InstallLocation, or UninstallString.
+        InstallLocation, or UninstallString, falling back to WinGet links and system PATH.
         """
         # 1. Try DisplayIcon
         if display_icon:
@@ -129,6 +192,31 @@ class SecurityAuditor:
                                 return os.path.join(d, item)
                     except OSError:
                         pass
+
+        # 4. Try WinGet Links (%LOCALAPPDATA%\Microsoft\WinGet\Links) for CLI packages
+        winget_links = os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Links")
+        if os.path.isdir(winget_links) and (app_name or pkg_id):
+            candidates_to_try = []
+            if app_name:
+                candidates_to_try.extend([f"{app_name}.exe", f"{app_name.lower()}.exe"])
+            if pkg_id:
+                suffix = pkg_id.split(".")[-1]
+                candidates_to_try.extend([f"{suffix}.exe", f"{suffix.lower()}.exe"])
+            for cand in candidates_to_try:
+                lp = os.path.join(winget_links, cand)
+                if os.path.isfile(lp):
+                    return lp
+
+        # 5. Try system PATH via shutil.which for CLI / developer tools
+        if app_name or pkg_id:
+            terms = filter(None, [app_name, app_name.lower() if app_name else "", pkg_id.split(".")[-1].lower() if pkg_id else ""])
+            for term in terms:
+                try:
+                    w = shutil.which(term)
+                    if w and os.path.isfile(w):
+                        return w
+                except Exception:
+                    pass
 
         return None
 
@@ -229,7 +317,7 @@ class SecurityAuditor:
         if system_component == 1 and "microsoft" not in publisher and "windows" not in publisher:
             findings.append("Stealth Registry Flag: Hidden from Add/Remove Programs (SystemComponent=1)")
 
-        if not uninstall_string and "microsoft" not in publisher:
+        if not uninstall_string and not winget_id and "microsoft" not in publisher:
             findings.append("Missing UninstallString (Potential stealth or persistent software)")
 
         # Suspicious Install Directory Check
@@ -321,6 +409,8 @@ class SecurityAuditor:
             app_info.get("display_icon", ""),
             app_info.get("install_location", ""),
             app_info.get("uninstall_string", ""),
+            app_info.get("name", ""),
+            app_info.get("id", "") or app_info.get("winget_id", ""),
         )
         sha256 = self.get_sha256(exe_path) if exe_path else None
         sig = self.check_authenticode_signature(exe_path) if exe_path else {
@@ -345,18 +435,15 @@ class SecurityAuditor:
             reasons.append("CRITICAL: Digital signature HashMismatch (Binary modified or tampered!)")
             cloud_flagged = True
         elif sig["status"] == "NotSigned" and exe_path:
-            reasons.append("Binary is not digitally signed (Unsigned executable)")
+            reasons.append("Binary is not digitally signed (Unsigned open-source or developer build)")
         elif not exe_path:
-            reasons.append("Executable path not found in registry (WinGet source only)")
+            reasons.append("Executable binary not registered in Windows registry (WinGet/Store tool)")
 
         # Publisher vs Signer consistency check
         pub = (app_info.get("publisher") or "").lower()
         signer = (sig.get("signer") or "").lower()
         if sig["valid"] and pub and signer:
-            # Check if signer name roughly aligns with publisher
-            p_words = set(re.findall(r"\w+", pub))
-            s_words = set(re.findall(r"\w+", signer))
-            if not p_words.intersection(s_words) and "microsoft" not in pub:
+            if not is_publisher_signer_aligned(pub, signer):
                 reasons.append(f"Publisher mismatch: Signer '{sig['signer']}' vs Registry '{app_info.get('publisher')}'")
 
         # Determine final Risk Tier & UI Badge

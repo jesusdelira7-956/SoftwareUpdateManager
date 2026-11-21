@@ -3527,6 +3527,9 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                     s = line.strip()
                     if not s or s.startswith("-") or "upgrade available" in s or "upgrades available" in s:
                         continue
+                    # Skip Winget informational footer lines (e.g. pinned packages info)
+                    if any(phrase in s.lower() for phrase in ["have pin", "prevent upgrade", "winget pin", "pin command", "more result"]):
+                        continue
                     if len(line) < idx_avail:
                         continue
 
@@ -3536,11 +3539,34 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                     avail_ver = line[idx_avail:idx_src].strip()
                     source = line[idx_src:].strip() if idx_src < len(line) else "winget"
 
-                    if pkg_id and avail_ver and pkg_id != "Id":
-                        # Match with installed registry app details for security evaluation
-                        matched_reg = {}
+                    # Validate that this is a valid package row (Package ID cannot contain whitespace)
+                    if not pkg_id or " " in pkg_id or "\t" in pkg_id or pkg_id == "Id":
+                        continue
+                    if not avail_ver:
+                        continue
+
+                    # Multi-pass matching with installed registry apps
+                    matched_reg = {}
+                    # Pass 1: Exact name match (case-insensitive)
+                    for inst in installed:
+                        if inst["name"].strip().lower() == name.lower():
+                            matched_reg = inst
+                            break
+
+                    # Pass 2: Exact package ID match
+                    if not matched_reg:
                         for inst in installed:
-                            if inst["name"].lower() == name.lower() or inst["name"].lower() in name.lower() or name.lower() in inst["name"].lower():
+                            if inst.get("id") and inst["id"].strip().lower() == pkg_id.lower():
+                                matched_reg = inst
+                                break
+
+                    # Pass 3: Clean alphanumeric name match (e.g. "GitHub Desktop" -> "githubdesktop")
+                    if not matched_reg:
+                        name_clean = re.sub(r"[^a-zA-Z0-9]", "", name).lower()
+                        pkg_suffix = pkg_id.split(".")[-1].lower() if "." in pkg_id else ""
+                        for inst in installed:
+                            inst_clean = re.sub(r"[^a-zA-Z0-9]", "", inst["name"]).lower()
+                            if inst_clean == name_clean or (pkg_suffix and inst_clean == pkg_suffix):
                                 matched_reg = inst
                                 break
 
