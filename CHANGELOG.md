@@ -5,6 +5,25 @@ This project adheres strictly to a **Zero-Dependency Architecture** (100% Python
 
 ---
 
+## [v2.6.0] — 2026-11-24
+
+### 🐛 Fixed & Enhanced
+- **🔍 Winget Update Scanner & Registry Matching (`update_manager.py`)**:
+  - Fixed critical Pass 1/Pass 2 indentation bug inside `check_winget_upgrades()` where updates that matched the Windows Registry were silently skipped instead of evaluated and appended.
+  - Added prefix matching for version-suffixed DisplayNames (e.g., `AnythingLLM 1.12.0` ↔ `AnythingLLM`), `--include-pinned` hold detection (`📌 Pinned (Hold)` protected from `Push All`), and Windows Update COM `[Driver]` update discovery.
+- **🤖 Deep AI & Dev Suite Auditor Expansion (`update_manager.py`)**:
+  - Added `Docker Desktop`, `Bionic AI`, `Visual Studio Code`, `GitHub Desktop`, `Git SCM`, `FFmpeg`, `RipGrep MSVC`, and `Node.js` with word-boundary matching to eliminate substring collisions.
+  - Corrected `Claude Desktop` MSIX/Store status (`🛍️ Up to Date (Store / MSIX)`) so it no longer hardcodes `Relaunch to update`.
+- **⚡ Silent Update Engine & Standalone GitHub Releases (`update_manager.py`)**:
+  - Enabled `Silent Install Mode (--silent --disable-interactivity)` by default with automatic interactive fallback on exit code `0x8A150013` and safe `python.exe` `CLOUDSDK_PYTHON` resolution under `pythonw.exe`.
+  - Added standalone GitHub release tracking (`_query_anythingllm_github_update`), SHA-256 download logging, and silent NSIS `/S` installer execution for `AnythingLLM`.
+  - Added an inline unverified package opt-in checkbox inside `RestorePointConfirmDialog` before running sequential batches.
+- **🛡️ Security & Trust Gate Hardening (`security_auditor.py`) & MCP Bridge (`agent_bridge.py`)**:
+  - Added `%ProgramFiles%` MSI binary probing (resolving `ArtCraft.EffectCraft` and `Microsoft Power BI Desktop`), WiX Burn `\Package Cache\` directory exemptions, quote-stripped `DisplayIcon` parsing, CLI aliases (`rg.exe`), verified CLI/SDK trust, publisher aliases (`Learning Machines`, `Docker`, `Mintplex Labs`), and `audit_all_installed_software()`.
+  - Resolved cross-module calls in `agent_bridge.py` (`generate_ai_prompt_bundle` alias, pending updates in diagnostic bundle, `create_windows_restore_point`).
+
+---
+
 ## [v2.5.0] — 2026-11-20
 
 ### ✨ Added

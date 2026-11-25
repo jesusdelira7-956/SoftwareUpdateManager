@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Optional tag to create/update a GitHub Release (e.g. v2.5.0)'
+        description: 'Optional tag to create/update a GitHub Release (e.g. v2.6.0)'
         required: false
-        default: 'v2.5.0'
+        default: 'v2.6.0'
 
 permissions:
   contents: write

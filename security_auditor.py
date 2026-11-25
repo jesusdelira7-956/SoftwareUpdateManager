@@ -43,6 +43,14 @@ TRUSTED_PUBLISHER_SIGNER_ALIASES = {
     # Mozilla
     "mozilla": ["mozilla corporation", "mozilla foundation"],
     "mozilla corporation": ["mozilla", "mozilla foundation"],
+    # Learning Machines / ArtCraft Suite
+    "learning machines llc": ["learning machines inc", "learning machines", "artcraft"],
+    "learning machines inc": ["learning machines llc", "learning machines", "artcraft"],
+    # Docker
+    "docker inc.": ["docker inc", "docker"],
+    "docker inc": ["docker inc.", "docker"],
+    # Mintplex Labs / AnythingLLM
+    "mintplex labs inc": ["mintplex labs", "anythingllm"],
 }
 
 
@@ -142,6 +150,26 @@ class SecurityAuditor:
     # 1. EXECUTABLE RESOLUTION & SHA-256 HASHING
     # -----------------------------------------------------------------
     @staticmethod
+    def _pick_primary_exe(directory: str) -> Optional[str]:
+        """Select the primary non-uninstaller executable inside an application folder."""
+        if not directory or not os.path.isdir(directory):
+            return None
+        try:
+            candidates = []
+            for item in os.listdir(directory):
+                low = item.lower()
+                if low.endswith(".exe") and not any(
+                    skip in low for skip in ("unins", "uninst", "setup", "update", "crash", "helper")
+                ):
+                    candidates.append(os.path.join(directory, item))
+            if candidates:
+                candidates.sort(key=lambda p: (1 if "-cli.exe" in p.lower() else 0, len(os.path.basename(p))))
+                return candidates[0]
+        except OSError:
+            pass
+        return None
+
+    @staticmethod
     def resolve_executable_path(
         display_icon: str,
         install_location: str,
@@ -151,66 +179,108 @@ class SecurityAuditor:
     ) -> Optional[str]:
         """
         Extracts a clean executable path from Windows Registry DisplayIcon,
-        InstallLocation, or UninstallString, falling back to WinGet links and system PATH.
+        InstallLocation, standard Program Files directories, UninstallString,
+        WinGet links, and system PATH.
         """
-        # 1. Try DisplayIcon
+        cached_fallback = None
+
+        # 1. Try DisplayIcon (strip outer quotes before splitting optional ',0' icon index)
         if display_icon:
-            cleaned = display_icon.split(",")[0].strip().strip('"').strip("'")
+            raw_icon = display_icon.strip().strip('"').strip("'")
+            cleaned = raw_icon.split(",")[0].strip().strip('"').strip("'")
             if cleaned.lower().endswith(".exe") and os.path.isfile(cleaned):
-                return cleaned
+                if "\\package cache\\" in cleaned.lower():
+                    cached_fallback = cleaned
+                else:
+                    return cleaned
 
         # 2. Try InstallLocation
         if install_location:
             loc = install_location.strip().strip('"').strip("'")
             if os.path.isfile(loc) and loc.lower().endswith(".exe"):
                 return loc
-            if os.path.isdir(loc):
-                try:
-                    candidates = []
-                    for item in os.listdir(loc):
-                        if item.lower().endswith(".exe") and not any(
-                            skip in item.lower() for skip in ("unins", "uninst", "setup", "update", "crash", "helper")
-                        ):
-                            candidates.append(os.path.join(loc, item))
-                    if candidates:
-                        return candidates[0]
-                except OSError:
-                    pass
+            picked = SecurityAuditor._pick_primary_exe(loc)
+            if picked:
+                return picked
 
-        # 3. Try UninstallString (often points to app folder / uninstaller)
+        # 3. Try standard Program Files & user Programs directories using pkg_id / app_name
+        probe_dirs = []
+        pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+        pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+        local_progs = os.path.expandvars(r"%LOCALAPPDATA%\Programs")
+        clean_name = re.sub(r"\s*\([^)]*\)", "", app_name or "").strip()
+
+        if pkg_id and "." in pkg_id:
+            vendor, product = pkg_id.split(".", 1)
+            prod_leaf = product.split(".")[-1]
+            if pkg_id.lower() == "microsoft.powerbi":
+                probe_dirs.extend([
+                    os.path.join(pf, "Microsoft Power BI Desktop", "bin"),
+                    os.path.join(pf86, "Microsoft Power BI Desktop", "bin"),
+                ])
+            for base in (pf, pf86, local_progs):
+                probe_dirs.extend([
+                    os.path.join(base, vendor, prod_leaf),
+                    os.path.join(base, vendor, product),
+                    os.path.join(base, prod_leaf),
+                    os.path.join(base, product),
+                ])
+
+        if clean_name:
+            for base in (pf, pf86, local_progs):
+                probe_dirs.append(os.path.join(base, clean_name))
+
+        for pdir in dict.fromkeys(probe_dirs):
+            picked = SecurityAuditor._pick_primary_exe(pdir)
+            if picked:
+                return picked
+
+        # 4. Try UninstallString (often points to app folder / uninstaller)
         if uninstall_string:
             m = re.search(r'["\']?([^"\']+\.exe)["\']?', uninstall_string, re.IGNORECASE)
             if m:
                 u_exe = m.group(1).strip()
                 if os.path.isfile(u_exe):
-                    d = os.path.dirname(u_exe)
-                    try:
-                        for item in os.listdir(d):
-                            if item.lower().endswith(".exe") and not any(
-                                skip in item.lower() for skip in ("unins", "uninst", "setup")
-                            ):
-                                return os.path.join(d, item)
-                    except OSError:
-                        pass
+                    if "\\package cache\\" in u_exe.lower():
+                        cached_fallback = cached_fallback or u_exe
+                    else:
+                        picked = SecurityAuditor._pick_primary_exe(os.path.dirname(u_exe))
+                        if picked:
+                            return picked
 
-        # 4. Try WinGet Links (%LOCALAPPDATA%\Microsoft\WinGet\Links) for CLI packages
+        # 5. Try WinGet Links (%LOCALAPPDATA%\Microsoft\WinGet\Links) for CLI packages
+        cli_aliases = {
+            "burntsushi.ripgrep.msvc": "rg.exe",
+            "burntsushi.ripgrep.gnu": "rg.exe",
+            "gyan.ffmpeg": "ffmpeg.exe",
+            "git.git": "git.exe",
+        }
         winget_links = os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Links")
         if os.path.isdir(winget_links) and (app_name or pkg_id):
             candidates_to_try = []
+            if pkg_id and pkg_id.lower() in cli_aliases:
+                candidates_to_try.append(cli_aliases[pkg_id.lower()])
             if app_name:
                 candidates_to_try.extend([f"{app_name}.exe", f"{app_name.lower()}.exe"])
             if pkg_id:
                 suffix = pkg_id.split(".")[-1]
                 candidates_to_try.extend([f"{suffix}.exe", f"{suffix.lower()}.exe"])
-            for cand in candidates_to_try:
+            for cand in dict.fromkeys(candidates_to_try):
                 lp = os.path.join(winget_links, cand)
                 if os.path.isfile(lp):
                     return lp
 
-        # 5. Try system PATH via shutil.which for CLI / developer tools
+        # 6. Try system PATH via shutil.which for CLI / developer tools
         if app_name or pkg_id:
-            terms = filter(None, [app_name, app_name.lower() if app_name else "", pkg_id.split(".")[-1].lower() if pkg_id else ""])
-            for term in terms:
+            terms = []
+            if pkg_id and pkg_id.lower() in cli_aliases:
+                terms.append(cli_aliases[pkg_id.lower()])
+            terms.extend(filter(None, [
+                app_name,
+                app_name.lower() if app_name else "",
+                pkg_id.split(".")[-1].lower() if pkg_id else "",
+            ]))
+            for term in dict.fromkeys(terms):
                 try:
                     w = shutil.which(term)
                     if w and os.path.isfile(w):
@@ -218,7 +288,7 @@ class SecurityAuditor:
                 except Exception:
                     pass
 
-        return None
+        return cached_fallback
 
     def get_sha256(self, file_path: str) -> Optional[str]:
         """Computes SHA-256 digest streaming in 64KB blocks."""
@@ -325,8 +395,15 @@ class SecurityAuditor:
             lower_path = exe_path.lower()
             for risky_dir in self.blocklist.get("high_risk_paths", []):
                 if risky_dir.lower() in lower_path:
-                    # Exclude legitimate user-space apps in standard AppData\Local\Programs
-                    if "\\appdata\\local\\programs\\" not in lower_path:
+                    # Exclude legitimate user-space apps and WiX/Burn package caches
+                    if not any(
+                        safe in lower_path
+                        for safe in (
+                            "\\appdata\\local\\programs\\",
+                            "\\programdata\\package cache\\",
+                            "\\appdata\\local\\package cache\\",
+                        )
+                    ):
                         findings.append(f"Suspicious install path: {exe_path}")
                         break
 
@@ -419,8 +496,17 @@ class SecurityAuditor:
             source == "msstore"
             or any(winget_id.startswith(p) for p in ("anthropic.claude", "openai.chatgpt", "openai.codex", "microsoft."))
         )
+        is_verified_cli_pkg = (
+            winget_id == "google.cloudsdk"
+            or (
+                winget_id in ("gyan.ffmpeg", "burntsushi.ripgrep.msvc", "burntsushi.ripgrep.gnu")
+                and (not exe_path or "\\microsoft\\winget\\links\\" in exe_path.lower())
+            )
+        )
 
         sha256 = self.get_sha256(exe_path) if exe_path else None
+        reasons = self.evaluate_heuristics(app_info, exe_path)
+
         if not exe_path and is_verified_store_app:
             sig = {
                 "status": "Valid",
@@ -431,7 +517,14 @@ class SecurityAuditor:
             sig = self.check_authenticode_signature(exe_path) if exe_path else {
                 "status": "Unknown", "signer": "", "valid": False
             }
-        reasons = self.evaluate_heuristics(app_info, exe_path)
+
+        if is_verified_cli_pkg and not reasons and sig["status"] != "HashMismatch":
+            if not sig["valid"]:
+                sig = {
+                    "status": "Valid",
+                    "signer": "Winget Verified CLI / SDK",
+                    "valid": True,
+                }
 
         cloud_flagged = False
         if run_cloud_check and sha256:
@@ -449,9 +542,9 @@ class SecurityAuditor:
         if sig["status"] == "HashMismatch":
             reasons.append("CRITICAL: Digital signature HashMismatch (Binary modified or tampered!)")
             cloud_flagged = True
-        elif sig["status"] == "NotSigned" and exe_path:
+        elif sig["status"] == "NotSigned" and exe_path and not is_verified_cli_pkg:
             reasons.append("Binary is not digitally signed (Unsigned open-source or developer build)")
-        elif not exe_path and not is_verified_store_app:
+        elif not exe_path and not is_verified_store_app and not is_verified_cli_pkg:
             reasons.append("Executable binary not registered in Windows registry (WinGet/Store tool)")
 
         # Publisher vs Signer consistency check
@@ -485,4 +578,58 @@ class SecurityAuditor:
             "signer": sig["signer"],
             "reasons": reasons,
             "vt_url": f"https://www.virustotal.com/gui/file/{sha256}" if sha256 else "",
+        }
+
+    def audit_all_installed_software(self, installed_apps: list) -> dict:
+        """Fast full-inventory heuristic, path, and cached signature posture audit."""
+        trusted_count = 0
+        caution_count = 0
+        high_risk_count = 0
+        flagged_items = []
+
+        for app in installed_apps or []:
+            exe_path = self.resolve_executable_path(
+                app.get("display_icon", ""),
+                app.get("install_location", ""),
+                app.get("uninstall_string", ""),
+                app.get("name", ""),
+                app.get("id", "") or app.get("winget_id", ""),
+            )
+            findings = self.evaluate_heuristics(app, exe_path)
+            cached_sig = self._sig_cache.get(exe_path, {}) if exe_path else {}
+            if cached_sig.get("status") == "HashMismatch":
+                findings.append("CRITICAL: Digital signature HashMismatch (Binary modified or tampered!)")
+            elif cached_sig.get("status") == "NotSigned":
+                findings.append("Binary is not digitally signed (Unsigned open-source or developer build)")
+
+            if any(
+                "CRITICAL" in r or "Blocked" in r or "Matches known PUP" in r or "Stealth" in r
+                for r in findings
+            ):
+                high_risk_count += 1
+                flagged_items.append({
+                    "name": app.get("name", ""),
+                    "publisher": app.get("publisher", ""),
+                    "tier": "HIGH_RISK",
+                    "exe_path": exe_path or "",
+                    "reasons": findings,
+                })
+            elif findings:
+                caution_count += 1
+                flagged_items.append({
+                    "name": app.get("name", ""),
+                    "publisher": app.get("publisher", ""),
+                    "tier": "CAUTION",
+                    "exe_path": exe_path or "",
+                    "reasons": findings,
+                })
+            else:
+                trusted_count += 1
+
+        return {
+            "total": len(installed_apps or []),
+            "trusted_count": trusted_count,
+            "caution_count": caution_count,
+            "high_risk_count": high_risk_count,
+            "flagged_items": flagged_items,
         }
