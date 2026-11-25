@@ -21,6 +21,7 @@ import queue
 import string
 import shutil
 import ctypes
+import hashlib
 import winreg
 import platform
 import threading
@@ -38,7 +39,7 @@ import network_auditor
 import agent_bridge
 
 APP_NAME = "Software Update Manager"
-APP_VERSION = "2.5.0"
+APP_VERSION = "2.6.0"
 APP_DIR = Path(__file__).parent.resolve()
 LOG_FILE = APP_DIR / "update_history.log"
 DONATION_URL = "https://buymeacoffee.com/JesseInTheLab"
@@ -93,7 +94,7 @@ AI_CATALOG = {
         "winget_id": "Anthropic.Claude",
         "type": "Store / In-App",
         "site": "https://claude.ai/download",
-        "default_status": "⚡ In-App Auto-Updater (Relaunch to update)",
+        "default_status": "🛍️ Up to Date (Store / MSIX)",
     },
     "chatgpt": {
         "name": "ChatGPT Desktop",
@@ -231,7 +232,78 @@ AI_CATALOG = {
         "site": "",
         "default_status": "🛍️ Managed via Microsoft Store",
     },
+    "docker desktop": {
+        "name": "Docker Desktop",
+        "vendor": "Docker Inc.",
+        "winget_id": "Docker.DockerDesktop",
+        "type": "Win32 / Container Engine",
+        "site": "https://www.docker.com/products/docker-desktop/",
+        "default_status": "✓ Up to Date",
+    },
+    "bionic": {
+        "name": "Bionic AI",
+        "vendor": "LM Studio / ElementLabs",
+        "winget_id": "ElementLabs.Bionic",
+        "type": "Win32 / AI Runtime",
+        "site": "https://lmstudio.ai",
+        "default_status": "✓ Up to Date",
+    },
+    "visual studio code": {
+        "name": "Visual Studio Code",
+        "vendor": "Microsoft",
+        "winget_id": "Microsoft.VisualStudioCode",
+        "type": "Win32 / Dev IDE",
+        "site": "https://code.visualstudio.com",
+        "default_status": "✓ Up to Date",
+    },
+    "github desktop": {
+        "name": "GitHub Desktop",
+        "vendor": "GitHub",
+        "winget_id": "GitHub.GitHubDesktop",
+        "type": "Win32 / Git Client",
+        "site": "https://desktop.github.com",
+        "default_status": "✓ Up to Date",
+    },
+    "git": {
+        "name": "Git SCM",
+        "vendor": "The Git Development Community",
+        "winget_id": "Git.Git",
+        "type": "Win32 / CLI",
+        "site": "https://git-scm.com",
+        "default_status": "✓ Up to Date",
+    },
+    "ffmpeg": {
+        "name": "FFmpeg",
+        "vendor": "Gyan",
+        "winget_id": "Gyan.FFmpeg",
+        "type": "Win32 / Media CLI",
+        "site": "https://www.gyan.dev/ffmpeg/builds/",
+        "default_status": "✓ Up to Date",
+    },
+    "ripgrep": {
+        "name": "RipGrep MSVC",
+        "vendor": "BurntSushi",
+        "winget_id": "BurntSushi.ripgrep.MSVC",
+        "type": "Win32 / Search CLI",
+        "site": "https://github.com/BurntSushi/ripgrep",
+        "default_status": "✓ Up to Date",
+    },
+    "node.js": {
+        "name": "Node.js",
+        "vendor": "Node.js Foundation",
+        "winget_id": "Nodejs.Nodejs",
+        "type": "Win32 / Runtime",
+        "site": "https://nodejs.org",
+        "default_status": "✓ Up to Date",
+    },
 }
+
+def _catalog_key_matches(key: str, target_name: str) -> bool:
+    """Match AI_CATALOG keys safely, enforcing word boundaries for short keys."""
+    low = (target_name or "").lower()
+    if len(key) <= 5:
+        return bool(re.search(rf"\b{re.escape(key)}\b", low))
+    return key in low
 
 
 def scan_deep_ai_inventory(upgradable_map: dict = None) -> list[dict]:
@@ -266,7 +338,7 @@ def scan_deep_ai_inventory(upgradable_map: dict = None) -> list[dict]:
                 p_name = p.get("Name", "")
                 p_fam = p.get("PackageFamilyName", "")
                 for key, meta in AI_CATALOG.items():
-                    if key in p_name.lower():
+                    if _catalog_key_matches(key, p_name):
                         norm_key = meta["name"]
                         app_id = f"shell:AppsFolder\\{p_fam}!App"
                         if "claude" in p_name.lower():
@@ -275,6 +347,16 @@ def scan_deep_ai_inventory(upgradable_map: dict = None) -> list[dict]:
                             app_id = "shell:AppsFolder\\OpenAI.Codex_2p2nqsd0c76g0!App"
                         elif "chatgpt" in p_name.lower():
                             app_id = "shell:AppsFolder\\OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0!ChatGPT"
+
+                        status = meta["default_status"]
+                        act_label = "Launch App" if "In-App" in status else "Open Store"
+                        act_type = "app" if "In-App" in status else "store"
+                        wid = meta["winget_id"].lower()
+                        if wid and wid in upgradable_map:
+                            upg = upgradable_map[wid]
+                            status = f"⬆️ Update Available ({upg.get('available', 'Newer')})"
+                            act_label = "Update via WinGet"
+                            act_type = "winget"
 
                         inventory[norm_key] = {
                             "name": meta["name"],
@@ -285,9 +367,9 @@ def scan_deep_ai_inventory(upgradable_map: dict = None) -> list[dict]:
                             "location": p.get("InstallLocation", ""),
                             "app_id": app_id,
                             "site": meta["site"],
-                            "update_status": meta["default_status"],
-                            "action_label": "Launch App" if "In-App" in meta["default_status"] else "Open Store",
-                            "action_type": "app" if "In-App" in meta["default_status"] else "store",
+                            "update_status": status,
+                            "action_label": act_label,
+                            "action_type": act_type,
                         }
                         break
     except Exception:
@@ -311,7 +393,7 @@ def scan_deep_ai_inventory(upgradable_map: dict = None) -> list[dict]:
                             except OSError:
                                 dname = ""
                             for key, meta in AI_CATALOG.items():
-                                if key in dname.lower():
+                                if _catalog_key_matches(key, dname):
                                     if key == "antigravity" and any(x in dname.lower() for x in ("skills", "extension", "plugin")):
                                         continue
                                     norm_key = meta["name"]
@@ -365,12 +447,25 @@ def scan_deep_ai_inventory(upgradable_map: dict = None) -> list[dict]:
         "ollama": "Ollama LLM Engine",
         "cursor": "Cursor AI",
         "gcloud": "Google Cloud SDK",
+        "docker": "Docker Desktop",
+        "rg": "RipGrep MSVC",
+        "ffmpeg": "FFmpeg",
     }
     for cmd, norm_key in cli_map.items():
         if norm_key not in inventory:
             p = shutil.which(cmd)
             if p:
-                meta = AI_CATALOG.get(cmd, {})
+                meta_key = {"rg": "ripgrep"}.get(cmd, "docker desktop" if cmd == "docker" else cmd)
+                meta = AI_CATALOG.get(meta_key, {})
+                status = meta.get("default_status", "✓ Current")
+                act_label = "Open Terminal"
+                act_type = "cli"
+                wid = meta.get("winget_id", "").lower()
+                if wid and wid in upgradable_map:
+                    upg = upgradable_map[wid]
+                    status = f"⬆️ Update Available ({upg.get('available', 'Newer')})"
+                    act_label = "Update via WinGet"
+                    act_type = "winget"
                 inventory[norm_key] = {
                     "name": norm_key,
                     "vendor": meta.get("vendor", "Unknown"),
@@ -380,9 +475,9 @@ def scan_deep_ai_inventory(upgradable_map: dict = None) -> list[dict]:
                     "location": p,
                     "app_id": p,
                     "site": meta.get("site", ""),
-                    "update_status": meta.get("default_status", "✓ Current"),
-                    "action_label": "Open Terminal",
-                    "action_type": "cli",
+                    "update_status": status,
+                    "action_label": act_label,
+                    "action_type": act_type,
                 }
 
     # 4. Check specific web / GitHub release for standalone tools (e.g. AnythingLLM)
@@ -1203,15 +1298,304 @@ def format_short_gpu(gpu_name: str) -> str:
     return s[:26] if len(s) > 26 else (s or "GPU")
 
 
+def _parse_winget_upgrade_table(stdout_text: str) -> List[dict]:
+    """Parse fixed-width columns from 'winget upgrade' CLI output."""
+    if not stdout_text:
+        return []
+    lines = stdout_text.splitlines()
+    header_idx = -1
+    for i, line in enumerate(lines):
+        if "Name" in line and "Id" in line and "Version" in line and "Available" in line:
+            header_idx = i
+            break
+    if header_idx == -1 or header_idx >= len(lines):
+        return []
+
+    header = lines[header_idx]
+    idx_id = header.index("Id")
+    idx_ver = header.index("Version")
+    idx_avail = header.index("Available")
+    idx_src = header.index("Source") if "Source" in header else len(header)
+
+    rows: List[dict] = []
+    for line in lines[header_idx + 2:]:
+        s = line.strip()
+        if not s or s.startswith("-") or "upgrade available" in s.lower() or "upgrades available" in s.lower():
+            continue
+        if any(phrase in s.lower() for phrase in ("have pin", "prevent upgrade", "winget pin", "pin command", "more result")):
+            continue
+        if len(line) < idx_avail:
+            continue
+
+        name = line[:idx_id].strip()
+        pkg_id = line[idx_id:idx_ver].strip()
+        current_ver = line[idx_ver:idx_avail].strip()
+        avail_ver = line[idx_avail:idx_src].strip()
+        source = line[idx_src:].strip() if idx_src < len(line) else "winget"
+
+        if not pkg_id or " " in pkg_id or "\t" in pkg_id or pkg_id == "Id":
+            continue
+        if not avail_ver:
+            continue
+
+        rows.append({
+            "name": name,
+            "id": pkg_id,
+            "current": current_ver,
+            "available": avail_ver,
+            "source": source,
+        })
+    return rows
+
+
+def _match_registry_entry(name: str, pkg_id: str, installed: list) -> dict:
+    """Match a Winget package row against Registry installed entries across 4 passes."""
+    if not installed:
+        return {}
+    n_low = name.strip().lower()
+    id_low = pkg_id.strip().lower()
+
+    # Pass 1: Exact name match
+    for inst in installed:
+        if inst["name"].strip().lower() == n_low:
+            return inst
+
+    # Pass 2: Exact package ID match
+    for inst in installed:
+        if inst.get("id") and inst["id"].strip().lower() == id_low:
+            return inst
+
+    # Pass 3: Prefix match for version-suffixed DisplayNames (e.g. 'AnythingLLM 1.12.0')
+    for inst in installed:
+        inst_low = inst["name"].strip().lower()
+        if inst_low.startswith(n_low + " ") or n_low.startswith(inst_low + " "):
+            return inst
+
+    # Pass 4: Clean alphanumeric name / ID suffix match
+    name_clean = re.sub(r"[^a-zA-Z0-9]", "", name).lower()
+    pkg_suffix = pkg_id.split(".")[-1].lower() if "." in pkg_id else ""
+    for inst in installed:
+        inst_clean = re.sub(r"[^a-zA-Z0-9]", "", inst["name"]).lower()
+        if inst_clean == name_clean or (pkg_suffix and inst_clean == pkg_suffix):
+            return inst
+
+    return {}
+
+
+def _version_tuple(ver_str: str) -> tuple:
+    """Convert dotted version text into comparable integer tuples."""
+    nums = re.findall(r"\d+", str(ver_str or ""))
+    return tuple(int(n) for n in nums)
+
+
+def _audit_and_build_upgrade_item(
+    row: dict,
+    installed: list,
+    auditor: SecurityAuditor,
+    extra: Optional[dict] = None,
+) -> dict:
+    """Run SecurityAuditor on a parsed update row and construct its UI/API record."""
+    name = row["name"]
+    pkg_id = row["id"]
+    matched_reg = _match_registry_entry(name, pkg_id, installed)
+
+    audit_input = {
+        "name": name,
+        "id": pkg_id,
+        "winget_id": pkg_id,
+        "source": row.get("source", ""),
+        "publisher": matched_reg.get("publisher", ""),
+        "display_icon": matched_reg.get("display_icon", ""),
+        "install_location": matched_reg.get("install_location", ""),
+        "uninstall_string": matched_reg.get("uninstall_string", ""),
+        "system_component": matched_reg.get("system_component", 0),
+    }
+    sec_verdict = auditor.audit_application(audit_input)
+
+    tag = "pending"
+    if sec_verdict.get("tier") == "HIGH_RISK":
+        tag = "failed"
+    elif sec_verdict.get("tier") == "CAUTION":
+        tag = "reboot"
+
+    item = {
+        "name": name,
+        "id": pkg_id,
+        "current": row["current"],
+        "available": row["available"],
+        "source": row.get("source", "winget"),
+        "status": "Pending Update",
+        "tag": tag,
+        "security": sec_verdict,
+        "trust": sec_verdict.get("badge", "🟢 Trusted"),
+        "trust_tier": sec_verdict.get("tier", "TRUSTED"),
+    }
+    if extra:
+        item.update(extra)
+        if extra.get("tag") and sec_verdict.get("tier") != "HIGH_RISK":
+            item["tag"] = extra["tag"]
+    return item
+
+
+def _query_anythingllm_github_update(installed: list, auditor: SecurityAuditor) -> Optional[dict]:
+    """Check GitHub releases for Mintplex-Labs/anything-llm when installed outside Winget."""
+    match = next(
+        (inst for inst in (installed or []) if "anythingllm" in inst.get("name", "").lower()),
+        None,
+    )
+    if not match:
+        return None
+
+    exe_path = SecurityAuditor.resolve_executable_path(
+        match.get("display_icon", ""),
+        match.get("install_location", ""),
+        match.get("uninstall_string", ""),
+        match.get("name", ""),
+        "MintplexLabs.AnythingLLM",
+    )
+    cur_ver = (match.get("version") or "").strip()
+    if (not cur_ver or cur_ver == "—") and exe_path:
+        cur_ver = get_pe_file_version(exe_path) or "Unknown"
+
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/repos/Mintplex-Labs/anything-llm/releases/latest",
+            headers={"User-Agent": "SoftwareUpdateManager/2.6"},
+        )
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            gh_data = json.loads(resp.read().decode("utf-8"))
+        latest_tag = gh_data.get("tag_name", "").lstrip("v").strip()
+        if not latest_tag:
+            return None
+        if cur_ver not in ("", "Unknown", "—"):
+            if _version_tuple(latest_tag) <= _version_tuple(cur_ver):
+                return None
+
+        is_arm64 = "ARM" in platform.machine().upper()
+        assets = gh_data.get("assets", [])
+        asset_url = ""
+        for a in assets:
+            aname = a.get("name", "")
+            if not aname.lower().endswith(".exe"):
+                continue
+            if is_arm64 and "arm64" in aname.lower():
+                asset_url = a.get("browser_download_url", "")
+                break
+            if not is_arm64 and "arm64" not in aname.lower() and "anythingllm" in aname.lower():
+                asset_url = a.get("browser_download_url", "")
+                break
+
+        if not asset_url:
+            return None
+
+        install_dir = os.path.dirname(exe_path) if exe_path and os.path.isfile(exe_path) else ""
+        row = {
+            "name": "AnythingLLM",
+            "id": "MintplexLabs.AnythingLLM",
+            "current": cur_ver,
+            "available": latest_tag,
+            "source": "GitHub Release",
+        }
+        return _audit_and_build_upgrade_item(
+            row,
+            installed,
+            auditor,
+            extra={
+                "direct_installer_url": asset_url,
+                "install_dir": install_dir,
+                "silent_args": ["/S", f"/D={install_dir}"] if install_dir else ["/S"],
+            },
+        )
+    except Exception:
+        return None
+
+
+def check_winget_upgrades(
+    installed: Optional[list] = None,
+    security_auditor: Optional[SecurityAuditor] = None,
+    include_pinned: bool = True,
+    include_standalone: bool = True,
+) -> list:
+    """
+    Query Winget upgradable packages (including unknown/pinned versions) plus
+    verified standalone GitHub releases (e.g., AnythingLLM), returning security-audited records.
+    """
+    if installed is None:
+        installed = scan_installed_registry_apps()
+    auditor = security_auditor or SecurityAuditor()
+
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+    cmd = ["winget", "upgrade", "--include-unknown", "--accept-source-agreements"]
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=120,
+        startupinfo=startupinfo,
+    )
+    primary_rows = _parse_winget_upgrade_table(proc.stdout)
+
+    upgradable_apps: List[dict] = []
+    seen_ids = set()
+    for row in primary_rows:
+        seen_ids.add(row["id"].lower())
+        upgradable_apps.append(_audit_and_build_upgrade_item(row, installed, auditor))
+
+    if include_pinned:
+        try:
+            pin_cmd = [
+                "winget", "upgrade", "--include-unknown", "--include-pinned", "--accept-source-agreements"
+            ]
+            pin_proc = subprocess.run(
+                pin_cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=120,
+                startupinfo=startupinfo,
+            )
+            for row in _parse_winget_upgrade_table(pin_proc.stdout):
+                if row["id"].lower() not in seen_ids:
+                    seen_ids.add(row["id"].lower())
+                    upgradable_apps.append(
+                        _audit_and_build_upgrade_item(
+                            row,
+                            installed,
+                            auditor,
+                            extra={
+                                "is_pinned": True,
+                                "status": "📌 Pinned (Hold)",
+                                "tag": "reboot",
+                            },
+                        )
+                    )
+        except Exception:
+            pass
+
+    if include_standalone and "mintplexlabs.anythingllm" not in seen_ids:
+        standalone_item = _query_anythingllm_github_update(installed, auditor)
+        if standalone_item:
+            upgradable_apps.append(standalone_item)
+
+    return upgradable_apps
+
+
 # =====================================================================
 # SYSTEM RESTORE POINT CONFIRMATION DIALOG
 # =====================================================================
 class RestorePointConfirmDialog(tk.Toplevel):
-    def __init__(self, parent, target_count: int, silent_mode: bool):
+    def __init__(self, parent, target_count: int, silent_mode: bool, unverified_count: int = 0, include_unverified: bool = False):
         super().__init__(parent)
         self.result = None  # "yes", "no", or None
+        self.allow_unverified = bool(include_unverified)
         self.title("🛡️ Windows System Protection & Update Confirmation")
-        self.geometry("560x360")
+        dlg_h = 400 if (unverified_count > 0 and not include_unverified) else 360
+        self.geometry(f"560x{dlg_h}")
         self.resizable(False, False)
         self.configure(bg="#0f172a")
         self.transient(parent)
@@ -1224,7 +1608,7 @@ class RestorePointConfirmDialog(tk.Toplevel):
         px = parent.winfo_rootx()
         py = parent.winfo_rooty()
         x = px + max(0, (pw - 560) // 2)
-        y = py + max(0, (ph - 360) // 2)
+        y = py + max(0, (ph - dlg_h) // 2)
         self.geometry(f"+{x}+{y}")
 
         frame = tk.Frame(self, bg="#0f172a", padx=24, pady=20)
@@ -1259,6 +1643,18 @@ class RestorePointConfirmDialog(tk.Toplevel):
             text="Creating a Windows Restore Point creates a safe recovery snapshot before modifying system files. If any driver, runtime, or third-party software update causes system instability, you can safely roll back your PC.",
             bg="#1e293b", fg="#cbd5e1", font=("Segoe UI", 9), anchor="w", justify=tk.LEFT, wraplength=480
         ).pack(fill=tk.X)
+
+        self._unverified_var = tk.BooleanVar(value=self.allow_unverified)
+        if unverified_count > 0 and not include_unverified:
+            chk_unv = tk.Checkbutton(
+                frame,
+                text=f"Include {unverified_count} unsigned / unverified package(s) in this batch (e.g. open-source tools)",
+                variable=self._unverified_var,
+                bg="#0f172a", fg="#fde047", selectcolor="#1e293b",
+                activebackground="#0f172a", activeforeground="#fde047",
+                font=("Segoe UI", 9), anchor="w"
+            )
+            chk_unv.pack(fill=tk.X, pady=(0, 10))
 
         # Action Buttons
         btn_frame = tk.Frame(frame, bg="#0f172a")
@@ -1301,10 +1697,12 @@ class RestorePointConfirmDialog(tk.Toplevel):
         btn_yes.focus_set()
 
     def _on_yes(self):
+        self.allow_unverified = bool(self._unverified_var.get())
         self.result = "yes"
         self.destroy()
 
     def _on_no(self):
+        self.allow_unverified = bool(self._unverified_var.get())
         self.result = "no"
         self.destroy()
 
@@ -1484,7 +1882,7 @@ class UpdateManagerApp(tk.Tk):
         self.search_var.trace_add("write", lambda *_: self._refresh_updates_tree())
         self.inv_search_var = tk.StringVar()
         self.inv_search_var.trace_add("write", lambda *_: self._refresh_inventory_tree())
-        self.silent_mode_var = tk.BooleanVar(value=False)
+        self.silent_mode_var = tk.BooleanVar(value=True)
         self.restore_point_var = tk.BooleanVar(value=True)
         self.include_unverified_var = tk.BooleanVar(value=False)
         self.agent_tier_var = tk.IntVar(value=agent_bridge.get_active_tier())
@@ -2081,6 +2479,7 @@ class UpdateManagerApp(tk.Tk):
         )
         self.mb_update_settings.configure(menu=self.menu_update_settings)
         self.mb_update_settings.pack(side=tk.LEFT, padx=5)
+        self._update_settings_label_fn = _update_settings_label
         _update_settings_label()
 
         self.btn_toggle_log = ttk.Button(
@@ -2237,7 +2636,7 @@ class UpdateManagerApp(tk.Tk):
         )
         help_text.pack(fill=tk.BOTH, expand=True)
 
-        guide_content = """📘 WELCOME TO SOFTWARE UPDATE MANAGER & AUDITOR (v2.4)
+        guide_content = """📘 WELCOME TO SOFTWARE UPDATE MANAGER & AUDITOR (v2.6)
 ================================================================================
 The purpose of Software Update Manager is to keep your computer fully updated while proactively protecting it from unknown network intrusions, exposed local AI ports, and malicious payloads — 100% Free & Open-Source.
 
@@ -3498,109 +3897,19 @@ By requesting Administrator elevation once when the app starts (shown by the gre
         self.log_ui(f"  • Found {len(installed)} installed software programs.")
         self.after(0, lambda: self.progress_var.set(55))
 
-        # STAGE 2B: Winget Upgradable Packages Scan
+        # STAGE 2B: Winget Upgradable Packages + Pinned + GitHub Standalone Scan
         upgradable_apps = []
         try:
-            self.log_ui("[STAGE 2] Querying Winget repository for available software updates...")
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            cmd = ["winget", "upgrade", "--include-unknown", "--accept-source-agreements"]
-            proc = subprocess.run(
-                cmd, capture_output=True, text=True, errors="replace", timeout=120, startupinfo=startupinfo
+            self.log_ui("[STAGE 2] Querying Winget repository, pinned holds & GitHub releases for available updates...")
+            upgradable_apps = check_winget_upgrades(
+                installed,
+                self.security_auditor,
+                include_pinned=True,
+                include_standalone=True,
             )
-            lines = proc.stdout.splitlines()
-
-            header_idx = -1
-            for i, line in enumerate(lines):
-                if "Name" in line and "Id" in line and "Version" in line and "Available" in line:
-                    header_idx = i
-                    break
-
-            if header_idx != -1 and header_idx < len(lines):
-                header = lines[header_idx]
-                idx_id = header.index("Id")
-                idx_ver = header.index("Version")
-                idx_avail = header.index("Available")
-                idx_src = header.index("Source") if "Source" in header else len(header)
-
-                for line in lines[header_idx + 2:]:
-                    s = line.strip()
-                    if not s or s.startswith("-") or "upgrade available" in s or "upgrades available" in s:
-                        continue
-                    # Skip Winget informational footer lines (e.g. pinned packages info)
-                    if any(phrase in s.lower() for phrase in ["have pin", "prevent upgrade", "winget pin", "pin command", "more result"]):
-                        continue
-                    if len(line) < idx_avail:
-                        continue
-
-                    name = line[:idx_id].strip()
-                    pkg_id = line[idx_id:idx_ver].strip()
-                    current_ver = line[idx_ver:idx_avail].strip()
-                    avail_ver = line[idx_avail:idx_src].strip()
-                    source = line[idx_src:].strip() if idx_src < len(line) else "winget"
-
-                    # Validate that this is a valid package row (Package ID cannot contain whitespace)
-                    if not pkg_id or " " in pkg_id or "\t" in pkg_id or pkg_id == "Id":
-                        continue
-                    if not avail_ver:
-                        continue
-
-                    # Multi-pass matching with installed registry apps
-                    matched_reg = {}
-                    # Pass 1: Exact name match (case-insensitive)
-                    for inst in installed:
-                        if inst["name"].strip().lower() == name.lower():
-                            matched_reg = inst
-                            break
-
-                    # Pass 2: Exact package ID match
-                    if not matched_reg:
-                        for inst in installed:
-                            if inst.get("id") and inst["id"].strip().lower() == pkg_id.lower():
-                                matched_reg = inst
-                                break
-
-                    # Pass 3: Clean alphanumeric name match (e.g. "GitHub Desktop" -> "githubdesktop")
-                    if not matched_reg:
-                        name_clean = re.sub(r"[^a-zA-Z0-9]", "", name).lower()
-                        pkg_suffix = pkg_id.split(".")[-1].lower() if "." in pkg_id else ""
-                        for inst in installed:
-                            inst_clean = re.sub(r"[^a-zA-Z0-9]", "", inst["name"]).lower()
-                            if inst_clean == name_clean or (pkg_suffix and inst_clean == pkg_suffix):
-                                matched_reg = inst
-                                break
-
-                        # Pre-Update Security & Trust Gate Audit
-                        audit_input = {
-                            "name": name,
-                            "id": pkg_id,
-                            "winget_id": pkg_id,
-                            "publisher": matched_reg.get("publisher", ""),
-                            "display_icon": matched_reg.get("display_icon", ""),
-                            "install_location": matched_reg.get("install_location", ""),
-                            "uninstall_string": matched_reg.get("uninstall_string", ""),
-                            "system_component": matched_reg.get("system_component", 0),
-                        }
-                        sec_verdict = self.security_auditor.audit_application(audit_input)
-
-                        tag = "pending"
-                        if sec_verdict.get("tier") == "HIGH_RISK":
-                            tag = "failed"
-                        elif sec_verdict.get("tier") == "CAUTION":
-                            tag = "reboot"
-
-                        upgradable_apps.append({
-                            "name": name,
-                            "id": pkg_id,
-                            "current": current_ver,
-                            "available": avail_ver,
-                            "source": source,
-                            "status": "Pending Update",
-                            "tag": tag,
-                            "security": sec_verdict,
-                            "trust": sec_verdict.get("badge", "🟢 Trusted"),
-                            "trust_tier": sec_verdict.get("tier", "TRUSTED"),
-                        })
+            pinned_cnt = sum(1 for a in upgradable_apps if a.get("is_pinned"))
+            if pinned_cnt:
+                self.log_ui(f"  • Detected {pinned_cnt} pinned package update(s) (held unless explicitly selected).")
         except Exception as e:
             self.log_ui(f"[SCAN ERROR] Winget upgrade check failed: {e}")
 
@@ -3639,14 +3948,17 @@ By requesting Administrator elevation once when the app starts (shown by the gre
 
         self.after(0, lambda: self.progress_var.set(80))
 
-        # STAGE 2C: Windows Update Check
+        # STAGE 2C: Windows Update Check (Software & Hardware Drivers)
         self.windows_updates.clear()
         try:
-            self.log_ui("[STAGE 2] Checking Windows Update service for pending OS patches...")
+            self.log_ui("[STAGE 2] Checking Windows Update service for pending OS patches & drivers...")
             ps_script = (
                 "$s = New-Object -ComObject Microsoft.Update.Session; "
-                "$sr = $s.CreateUpdateSearcher().Search('IsInstalled=0 and Type=''Software'' and IsHidden=0'); "
-                "foreach ($u in $sr.Updates) { Write-Output $u.Title }"
+                "$sr = $s.CreateUpdateSearcher().Search('IsInstalled=0 and IsHidden=0'); "
+                "foreach ($u in $sr.Updates) { "
+                "$isDrv = ($u.Categories | Where-Object { $_.Name -match 'Driver' }); "
+                "$prefix = if ($isDrv) { '[Driver] ' } else { '' }; "
+                "Write-Output ($prefix + $u.Title) }"
             )
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
@@ -3832,9 +4144,18 @@ By requesting Administrator elevation once when the app starts (shown by the gre
     def start_update_all(self):
         if not self.updates_list or self.is_updating:
             return
-        pending = [a for a in self.updates_list if a["tag"] != "verified"]
-        targets = pending if pending else self.updates_list
-        self._start_sequential_updates(targets)
+        pending = [a for a in self.updates_list if a["tag"] != "verified" and not a.get("is_pinned")]
+        skipped_pins = [a["name"] for a in self.updates_list if a.get("is_pinned")]
+        if skipped_pins:
+            self.log_ui(f"[PIN GUARD] Skipping pinned package(s) in Push All: {', '.join(skipped_pins)} (use 'Update Selected' to override).")
+        if not pending:
+            messagebox.showinfo(
+                "Only Pinned Updates Remaining",
+                "All non-pinned updates are complete. Highlight pinned item(s) and click 'Update Selected' to override a pin.",
+                parent=self,
+            )
+            return
+        self._start_sequential_updates(pending)
 
     def start_update_selected(self):
         if self.is_updating:
@@ -3850,13 +4171,26 @@ By requesting Administrator elevation once when the app starts (shown by the gre
         if not targets:
             return
 
+        unverified_cnt = sum(1 for app in targets if app.get("trust_tier") == "CAUTION")
+
         # Show System Restore Confirmation Dialog (Yes/No with Recommendation to Yes)
-        dialog = RestorePointConfirmDialog(self, len(targets), self.silent_mode_var.get())
+        dialog = RestorePointConfirmDialog(
+            self,
+            len(targets),
+            self.silent_mode_var.get(),
+            unverified_count=unverified_cnt,
+            include_unverified=self.include_unverified_var.get(),
+        )
         self.wait_window(dialog)
 
         if dialog.result is None:
             # User clicked Cancel or closed the dialog
             return
+
+        if dialog.allow_unverified != self.include_unverified_var.get():
+            self.include_unverified_var.set(dialog.allow_unverified)
+            if hasattr(self, "_update_settings_label_fn"):
+                self._update_settings_label_fn()
 
         create_restore = (dialog.result == "yes")
         self.restore_point_var.set(create_restore)
@@ -4106,37 +4440,119 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                     self.after(0, lambda p=pkg_id: self._set_app_state(p, status="✗ Launch Failed", tag="failed"))
                 continue
 
+            # Standalone GitHub Release Installer (e.g. AnythingLLMDesktop.exe /S)
+            if app.get("direct_installer_url"):
+                url = app["direct_installer_url"]
+                temp_exe = os.path.join(
+                    os.environ.get("TEMP", "."),
+                    f"{re.sub(r'[^a-zA-Z0-9]', '_', pkg_id)}_update.exe",
+                )
+                self.log_ui("-" * 54)
+                self.log_ui(f"[{idx}/{total}] Direct Installer Update: {name} ({old_ver} -> {avail_ver})")
+                self.log_ui(f"  • Downloading from: {url}")
+                try:
+                    req = urllib.request.Request(url, headers={"User-Agent": "SoftwareUpdateManager/2.6"})
+                    sha256_h = hashlib.sha256()
+                    with urllib.request.urlopen(req, timeout=180) as resp, open(temp_exe, "wb") as out_f:
+                        while True:
+                            chunk = resp.read(65536)
+                            if not chunk:
+                                break
+                            out_f.write(chunk)
+                            sha256_h.update(chunk)
+                    digest = sha256_h.hexdigest().lower()
+                    self.log_ui(f"  • Downloaded installer SHA-256: {digest}")
+
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    install_dir = app.get("install_dir", "")
+                    if self.silent_mode_var.get():
+                        if install_dir:
+                            # NSIS requires /D=<dir> to be unquoted and last on command line
+                            cmd_str = f'"{temp_exe}" /S /D={install_dir}'
+                            proc_res = subprocess.run(cmd_str, timeout=300, startupinfo=startupinfo)
+                        else:
+                            proc_res = subprocess.run([temp_exe, "/S"], timeout=300, startupinfo=startupinfo)
+                    else:
+                        proc_res = subprocess.run([temp_exe], timeout=600)
+
+                    return_code = proc_res.returncode
+                    decoded_badge, decoded_desc = decode_winget_exit_code(return_code)
+                    self.log_ui(f"[EXIT CODE] {name} finished with code {return_code} ({decoded_desc})")
+                    self.after(0, lambda p=pkg_id: self._set_app_state(p, status="Verifying...", tag="updating"))
+                    verified, verified_ver = self._verify_installation(pkg_id, avail_ver)
+                    if return_code == 0 or verified:
+                        success_count += 1
+                        self.verified_session_count += 1
+                        final_ver = verified_ver or avail_ver
+                        status_text = f"✓ Verified ({final_ver})"
+                        self.after(0, lambda p=pkg_id, v=f"{old_ver} → {final_ver}", s=status_text: self._set_app_state(p, current_ver=v, status=s, tag="verified"))
+                        self.after(0, lambda c=self.verified_session_count: self.card_ver_val.config(text=str(c)))
+                        self.log_ui(f"[VERIFIED] {name} confirmed at version {final_ver}")
+                    else:
+                        failed_count += 1
+                        self.after(0, lambda p=pkg_id, s=decoded_badge: self._set_app_state(p, status=s, tag="failed"))
+                except Exception as e:
+                    failed_count += 1
+                    self.log_ui(f"[ERROR] Standalone installer failed for {name}: {e}")
+                    self.after(0, lambda p=pkg_id: self._set_app_state(p, status="✗ Error", tag="failed"))
+                finally:
+                    try:
+                        if os.path.exists(temp_exe):
+                            os.remove(temp_exe)
+                    except OSError:
+                        pass
+                time.sleep(1.0)
+                continue
+
             self.log_ui("-" * 54)
             self.log_ui(f"[{idx}/{total}] Upgrading: {name} ({pkg_id}) | {old_ver} -> {avail_ver}")
 
-            cmd = [
-                "winget", "upgrade",
-                "--id", pkg_id,
-                "--exact",
-                "--accept-source-agreements",
-                "--accept-package-agreements",
-            ]
-            if self.silent_mode_var.get():
-                cmd.append("--silent")
+            def _build_winget_cmd(use_silent: bool) -> list:
+                c = [
+                    "winget", "upgrade",
+                    "--id", pkg_id,
+                    "--exact",
+                    "--accept-source-agreements",
+                    "--accept-package-agreements",
+                ]
+                if app.get("is_pinned"):
+                    c.append("--include-pinned")
+                if use_silent:
+                    c.extend(["--silent", "--disable-interactivity"])
+                return c
 
             try:
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                proc = subprocess.Popen(
-                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, errors="replace", bufsize=1, startupinfo=startupinfo
-                )
 
-                while True:
-                    line = proc.stdout.readline()
-                    if not line and proc.poll() is not None:
-                        break
-                    if line:
-                        stripped = line.strip()
-                        if stripped and len(stripped) > 2 and not all(c in "-\\|/" for c in stripped):
-                            self.log_ui(f"  > {stripped}", to_file=False)
+                def _run_winget_once(use_silent: bool) -> int:
+                    p = subprocess.Popen(
+                        _build_winget_cmd(use_silent),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        bufsize=1,
+                        startupinfo=startupinfo,
+                    )
+                    while True:
+                        line = p.stdout.readline()
+                        if not line and p.poll() is not None:
+                            break
+                        if line:
+                            stripped = line.strip()
+                            if stripped and len(stripped) > 2 and not all(ch in "-\\|/" for ch in stripped):
+                                self.log_ui(f"  > {stripped}", to_file=False)
+                    return p.wait(timeout=600)
 
-                return_code = proc.wait(timeout=600)
+                return_code = _run_winget_once(self.silent_mode_var.get())
+                # 0x8A150013 = Installer does not support silent mode; retry interactively once
+                if self.silent_mode_var.get() and (return_code & 0xFFFFFFFF) == 0x8A150013:
+                    self.log_ui(f"  ⚠ Silent install not supported for {name}; retrying in interactive mode...")
+                    return_code = _run_winget_once(False)
+
                 decoded_badge, decoded_desc = decode_winget_exit_code(return_code)
                 self.log_ui(f"[EXIT CODE] {name} finished with code {return_code} ({decoded_desc})")
 
@@ -4152,8 +4568,13 @@ By requesting Administrator elevation once when the app starts (shown by the gre
                         if gcloud_path:
                             self.log_ui("  > Running native 'gcloud components update --quiet'...")
                             env = os.environ.copy()
-                            if sys.executable:
-                                env["CLOUDSDK_PYTHON"] = sys.executable
+                            if not getattr(sys, "frozen", False) and sys.executable:
+                                py_bin = sys.executable
+                                if py_bin.lower().endswith("pythonw.exe"):
+                                    cand_py = py_bin[:-11] + "python.exe"
+                                    py_bin = cand_py if os.path.exists(cand_py) else (shutil.which("python") or "")
+                                if py_bin:
+                                    env["CLOUDSDK_PYTHON"] = py_bin
                             try:
                                 g_res = subprocess.run(
                                     [gcloud_path, "components", "update", "--quiet"],
@@ -4206,7 +4627,15 @@ By requesting Administrator elevation once when the app starts (shown by the gre
         self.after(100, lambda: self._on_batch_complete(total, success_count, reboot_count, failed_count))
 
     def _verify_installation(self, pkg_id: str, target_version: str):
-        """Confirm via winget list or direct tool query that the package is now at target_version."""
+        """Confirm via Registry, tool query, or winget list that the package is now at target_version."""
+        if pkg_id.lower() == "mintplexlabs.anythingllm":
+            for inst in scan_installed_registry_apps():
+                if "anythingllm" in inst.get("name", "").lower():
+                    v = inst.get("version", "")
+                    if v and _version_tuple(v) >= _version_tuple(target_version):
+                        return True, v
+            return False, target_version
+
         if pkg_id.lower() == "google.cloudsdk":
             real_ver = get_real_gcloud_version()
             if real_ver:

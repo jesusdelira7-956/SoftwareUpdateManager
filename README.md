@@ -2,11 +2,11 @@
 
 <img src="assets/circle_logo_large.png" alt="Software Update Manager — Jesse In The Lab" width="140" />
 
-# 🛡️ Windows Software Update Manager & Intrusion Shield (v2.5.0)
+# 🛡️ Windows Software Update Manager & Intrusion Shield (v2.6.0)
 
 **Sequential Verified Software Updates • Authenticode & PUP Trust Gate • `0.0.0.0` LAN Intrusion Shield • Zero-Port 4-Tier AI MCP Bridge**
 
-[![Download Standalone EXE](https://img.shields.io/badge/⬇_Download_.EXE-SoftwareUpdateManager_v2.5.0-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/jesusdelira7-956/SoftwareUpdateManager/releases/latest)
+[![Download Standalone EXE](https://img.shields.io/badge/⬇_Download_.EXE-SoftwareUpdateManager_v2.6.0-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/jesusdelira7-956/SoftwareUpdateManager/releases/latest)
 [![Buy Me A Coffee](https://img.shields.io/badge/☕_Buy_Me_A_Coffee-Support_Development-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/JesseInTheLab)
 [![Universal Linux Edition](https://img.shields.io/badge/🐧_Universal_Linux_Edition-Also_Available-E95420?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/jesusdelira7-956/SoftwareUpdateManager-Linux)
 
@@ -29,7 +29,7 @@ A portable, high-performance desktop application for **Windows 10 & Windows 11**
 
 ## ⚡ Why Software Update Manager Instead of Raw `winget upgrade --all`?
 
-| Capability | Raw `winget upgrade --all` | 🛡️ Software Update Manager (v2.5.0) |
+| Capability | Raw `winget upgrade --all` | 🛡️ Software Update Manager (v2.6.0) |
 | :--- | :---: | :---: |
 | **Installer Execution** | Uncontrolled batch (risks MSI mutex collisions) | **Sequential One-by-One Pipeline** with post-install Registry verification |
 | **Digital Signature & PUP Check** | ❌ None | **Pre-Update Trust Gate** (Authenticode verify, publisher-signer alias check, `pup_blocklist.json`, SHA-256 hash lookup) |
